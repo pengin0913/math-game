@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>九宮格因倍數大挑戰</title>
+<style>
+  :root {
+    --player-color: #2196F3;
+    --player-bg: #e3f2fd;
+    --player-highlight: #ffeb3b;
+    --player2-highlight: #c8e6c9;
+    --ai-color: #4CAF50;
+    --ai-bg: #e8f8f5;
+
+    /* 浮水印與標籤預設透明度為 1.0 (最清晰) */
+    --watermark-color: #ff4d4d;
+    --watermark-opacity: 1.0;
+    --label-color: #d32f2f;
+    --label-opacity: 1.0;
+  }
+
+  body {
+    font-family: "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: #f0f2f5;
+    margin: 0;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    user-select: none;
+  }
+  h2 { margin: 5px 0 10px 0; color: #333; }
+
+  /* 工具列 */
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button, select {
+    padding: 6px 12px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    background: #fff;
+  }
+  button:hover { background: #e0e0e0; }
+  button.primary { background: #3f51b5; color: #fff; border: none; font-weight: bold; }
+  button.primary:hover { background: #303f9f; }
+  button.pdf-btn { background: #00796b; color: #fff; border: none; font-weight: bold; }
+  button.pdf-btn:hover { background: #004d40; }
+  button.style-btn { background: #673ab7; color: #fff; border: none; font-weight: bold; }
+  button.style-btn:hover { background: #512da8; }
+  button.history-btn { background: #e65100; color: #fff; border: none; font-weight: bold; }
+  button.history-btn:hover { background: #bf360c; }
+  button.diag-btn { background: #0288d1; color: #fff; border: none; font-weight: bold; }
+  button.diag-btn:hover { background: #01579b; }
+  button.rules-btn { background: #455a64; color: #fff; border: none; font-weight: bold; }
+  button.rules-btn:hover { background: #263238; }
+  button.confirm-btn { background: #ff9800; color: #fff; border: none; font-weight: bold; display: none; }
+  button.confirm-btn:hover { background: #f57c00; }
+
+  /* 主畫布版面 */
+  .game-container {
+    display: flex;
+    gap: 25px;
+    background: #fff;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+  }
+
+  /* 左邊配置：大九宮格 */
+  .left-board {
+    display: grid;
+    grid-template-columns: repeat(3, 160px);
+    grid-template-rows: repeat(3, 160px);
+    gap: 8px;
+    background: #333;
+    border: 4px solid #222;
+    padding: 4px;
+  }
+  .sub-grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 2px;
+    background: #777;
+    border: 1px solid #999;
+  }
+
+  /* 浮水印層 & 倍數標題層 */
+  .sub-grid::before {
+    content: attr(data-watermark);
+    position: absolute;
+    top: 55%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 85px;
+    font-weight: 900;
+    color: var(--watermark-color);
+    opacity: var(--watermark-opacity);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .sub-grid-label {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--label-color);
+    opacity: var(--label-opacity);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .cell {
+    background: rgba(255, 255, 255, 0.72);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    z-index: 2;
+  }
+  .cell:hover { background: rgba(245, 245, 245, 0.95); }
+  .cell.player-selecting {
+    background: var(--player-highlight) !important;
+    outline: 2px solid #f57f17;
+  }
+  .cell.p2-selecting {
+    background: #a5d6a7 !important;
+    outline: 2px solid #2e7d32;
+  }
+  .cell.player-claimed { background: var(--player-bg) !important; color: var(--player-color); outline: 2px solid var(--player-color); }
+  .cell.ai-claimed { background: var(--ai-bg) !important; color: var(--ai-color); outline: 2px solid var(--ai-color); }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); background: #ffcdd2; }
+    40%, 80% { transform: translateX(5px); background: #ffcdd2; }
+  }
+  .shake-error { animation: shake 0.4s ease-in-out; }
+
+  /* 右邊配置 */
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    width: 325px;
+    border: 3px solid #333;
+    border-radius: 6px;
+    padding: 10px;
+    background: #fafafa;
+  }
+  .right-top {
+    display: flex;
+    gap: 12px;
+    height: 305px;
+    border-bottom: 2px solid #555;
+    padding-bottom: 5px;
+  }
+
+  /* 紀錄區塊 (SVG 連接線與交錯圈圈) */
+  .record-section {
+    width: 95px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .section-title { font-size: 15px; font-weight: bold; margin-bottom: 4px; }
+  .record-track-container {
+    position: relative;
+    width: 80px;
+    height: 265px;
+  }
+  .track-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+  .track-circle {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid #555;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: bold;
+    z-index: 2;
+    transform: translate(-50%, -50%);
+  }
+  .track-circle.player { background: var(--player-color); color: #fff; border-color: #0d47a1; }
+  .track-circle.ai { background: var(--ai-color); color: #fff; border-color: #1b5e20; }
+
+  /* 計分表區塊 */
+  .score-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .score-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 52px);
+    grid-template-rows: repeat(3, 52px);
+    gap: 3px;
+    background: #555;
+    border: 2px solid #333;
+    margin: 5px 0;
+  }
+  .score-cell {
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    font-size: 11px;
+    line-height: 1.2;
+    padding: 2px;
+  }
+  .score-p { color: var(--player-color); font-weight: bold; }
+  .score-ai { color: var(--ai-color); font-weight: bold; }
+  .vs-badge { font-size: 14px; font-weight: bold; margin-top: 4px; }
+  .coin-badge { font-size: 11px; color: #b78103; font-weight: bold; margin-top: 2px; }
+
+  /* 圈1~圈9 選擇區 */
+  .right-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 8px;
+  }
+  .keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 55px);
+    gap: 10px;
+  }
+  .num-btn {
+    width: 55px;
+    height: 55px;
+    border-radius: 50%;
+    border: 2px solid #444;
+    font-size: 20px;
+    font-weight: bold;
+    background: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.1s;
+  }
+  .num-btn:hover:not(:disabled) { background: #ffe082; transform: scale(1.05); }
+  .num-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .status-bar {
+    margin-top: 6px;
+    font-weight: bold;
+    font-size: 12px;
+    color: #d32f2f;
+    min-height: 20px;
+    text-align: center;
+  }
+
+  /* 復盤控制列 */
+  .replay-bar {
+    display: none;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    background: #fff3e0;
+    padding: 8px 16px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    border: 2px solid #ffb74d;
+    width: 100%;
+    max-width: 820px;
+    box-sizing: border-box;
+  }
+
+  /* 彈窗樣式 */
+  .modal {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-content {
+    background: #fff;
+    padding: 22px 30px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    min-width: 360px;
+    max-width: 580px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+
+  .settings-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 12px 0;
+    font-size: 14px;
+    text-align: left;
+  }
+  .settings-group input[type="range"] { width: 130px; }
+
+  /* 骰子動畫 */
+  .dice-area {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin: 20px 0;
+  }
+  .dice-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .dice {
+    width: 60px;
+    height: 60px;
+    background: #fff;
+    border: 3px solid #333;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    font-weight: bold;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  }
+  .rolling { animation: spin 0.8s ease-out; }
+  @keyframes spin {
+    0% { transform: rotate(0deg) scale(0.8); }
+    50% { transform: rotate(180deg) scale(1.15); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+
+  /* 診斷表樣式 */
+  .diag-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .diag-table th, .diag-table td {
+    border: 1px solid #ddd;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .diag-table th { background: #f2f2f2; }
+  .prof-high { color: #2e7d32; font-weight: bold; }
+  .prof-mid { color: #f57f17; font-weight: bold; }
+  .prof-low { color: #d32f2f; font-weight: bold; }
+
+  .history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #eee;
+    font-size: 13px;
+  }
+  .history-item:hover { background: #f9f9f9; }
+
+  @page {
+    size: A4 landscape;
+    margin: 8mm 12mm;
+  }
+  @media print {
+    body { background: #fff !important; padding: 0 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    .toolbar, .modal, .status-bar, .replay-bar { display: none !important; }
+    .game-container { box-shadow: none !important; border: 1px solid #999; margin: auto; padding: 10px; }
+  }
+</style>
+</head>
+<body>
+
+  <h2>九宮格因倍數大挑戰</h2>
+
+  <div class="toolbar" id="mainToolbar">
+    <button class="primary" onclick="initDiceRollModal()">🎲 擲骰開局</button>
+    <button class="rules-btn" onclick="openRulesModal()">📖 遊戲規則與加分</button>
+    <button class="style-btn" onclick="openGameSettingsModal()">⚙️ 遊戲與語音設定</button>
+    <button class="style-btn" onclick="openWatermarkSettingsModal()">🎨 浮水印設定</button>
+    <button class="history-btn" onclick="openHistoryModal()">📚 對局歷史庫</button>
+    <button class="diag-btn" onclick="openDiagnosticModal(state)">📊 學生學習診斷表</button>
+    <button class="pdf-btn" onclick="exportToPDF()">📄 輸出棋盤 (PDF)</button>
+    <button class="confirm-btn" id="btnFinishClaim" onclick="finishCurrentClaim()">✅ 完成圈選確認</button>
+  </div>
+
+  <!-- 復盤控制列 -->
+  <div class="replay-bar" id="replayBar">
+    <span style="font-weight:bold; color:#e65100;">🔍 復盤模式：</span>
+    <button onclick="stepReplay('first')">⏮ 開局</button>
+    <button onclick="stepReplay('prev')">◀ 上一步</button>
+    <span id="replayStepIndicator" style="font-weight:bold; padding:0 6px;">第 0 / 10 手</span>
+    <button onclick="stepReplay('next')">下一步 ▶</button>
+    <button onclick="stepReplay('last')">⏭ 終局</button>
+    <button class="diag-btn" onclick="openDiagnosticModal(replayState.targetGame)">📊 本局診斷表</button>
+    <span id="replayMoveDetail" style="color:#333; font-size:13px; margin-left:8px;"></span>
+    <button class="primary" style="margin-left:auto;" onclick="exitReplayMode()">退出復盤</button>
+  </div>
+
+  <div class="game-container" id="printableArea">
+    <!-- 左邊大九宮格 -->
+    <div class="left-board" id="leftBoard"></div>
+
+    <!-- 右邊紀錄與控制 -->
+    <div class="right-panel">
+      <div class="right-top">
+        <div class="record-section">
+          <div class="section-title">紀錄</div>
+          <div class="record-track-container" id="recordTrackContainer">
+            <svg class="track-svg" id="trackSvg"></svg>
+            <div id="trackCircles"></div>
+          </div>
+        </div>
+        <div class="score-section">
+          <div class="section-title">計分表</div>
+          <div class="score-grid" id="scoreGrid"></div>
+          <div class="vs-badge" id="vsBadge">( 0 ) vs ( 0 )</div>
+          <div class="coin-badge" id="coinBadge" style="display:none;">🪙 金幣 (0) vs (0)</div>
+          <div class="status-bar" id="statusBar">請按「擲骰開局」開始</div>
+        </div>
+      </div>
+      <div class="right-bottom">
+        <div class="keypad" id="keypad"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模態彈窗 -->
+  <div class="modal" id="modal">
+    <div class="modal-content" id="modalContent"></div>
+  </div>
+
+<script>
+  const DICE_CHARS = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+
+  // 8 種三連線獲勝線條索引組合 (0~8 格)
+  const WINNING_LINES = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // 橫線
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // 直線
+    [0, 4, 8], [2, 4, 6]             // 斜線
+  ];
+
+  const TRACK_POINTS = [
+    { x: 26, y: 15 },
+    { x: 54, y: 41 },
+    { x: 26, y: 67 },
+    { x: 54, y: 93 },
+    { x: 26, y: 119 },
+    { x: 54, y: 145 },
+    { x: 26, y: 171 },
+    { x: 54, y: 197 },
+    { x: 26, y: 223 },
+    { x: 54, y: 249 }
+  ];
+
+  // 全域遊戲設定
+  let gameSettings = {
+    mode: 'pve',           // 'pve' 或 'pvp'
+    difficulty: 'hard',     // 'easy', 'mid', 'hard'
+    voiceLang: 'bilingual',// 'none', 'zh', 'en', 'bilingual'
+    lineBonus: true        // 是否啟用井字三連線獎勵分機制
+  };
+
+  let visualSettings = {
+    watermarkColor: '#ff4d4d',
+    watermarkOpacity: 1.0,
+    labelColor: '#d32f2f',
+    labelOpacity: 1.0
+  };
+
+  let state = {
+    gameId: null,
+    timestamp: null,
+    mode: 'pve',
+    board: Array(9).fill(null).map(() => Array(9).fill(null)),
+    scores: Array(9).fill(null).map(() => ({ player: 0, ai: 0, playerLines: 0, aiLines: 0 })),
+    coins: { player: 0, ai: 0 },
+    history: [],
+    turn: 'player', // 'player' (P1) 或 'ai' (P2/AI)
+    prevNumber: null,
+    totalRounds: 10,
+    manualPicking: false,
+    selectedNumber: null,
+    pendingTargetVal: null,
+    pendingExpectedPositions: [],
+    temporaryClaims: [],
+    diagnosticData: {
+      errorCountPerMultiplier: Array(10).fill(0),
+      decisionEfficiency: []
+    }
+  };
+
+  let replayState = {
+    isActive: false,
+    targetGame: null,
+    currentStep: 0
+  };
+
+  function initLayout() {
+    const leftBoard = document.getElementById('leftBoard');
+    leftBoard.innerHTML = '';
+    for (let g = 0; g < 9; g++) {
+      const subGrid = document.createElement('div');
+      subGrid.className = 'sub-grid';
+      subGrid.setAttribute('data-watermark', g + 1);
+
+      const label = document.createElement('div');
+      label.className = 'sub-grid-label';
+      label.innerText = `${g + 1}的倍數區`;
+      subGrid.appendChild(label);
+
+      for (let c = 0; c < 9; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.id = `cell-${g}-${c}`;
+        cell.innerText = (g + 1) * (c + 1);
+        cell.onclick = () => handleCellClick(g, c);
+        subGrid.appendChild(cell);
+      }
+      leftBoard.appendChild(subGrid);
+    }
+
+    renderRecordTrackLines();
+
+    const scoreGrid = document.getElementById('scoreGrid');
+    scoreGrid.innerHTML = '';
+    for (let g = 0; g < 9; g++) {
+      const cell = document.createElement('div');
+      cell.className = 'score-cell';
+      cell.id = `score-cell-${g}`;
+      cell.innerHTML = `<span class="score-p">P1:0</span><span class="score-ai">P2:0</span>`;
+      scoreGrid.appendChild(cell);
+    }
+
+    const keypad = document.getElementById('keypad');
+    keypad.innerHTML = '';
+    for (let n = 1; n <= 9; n++) {
+      const btn = document.createElement('button');
+      btn.className = 'num-btn';
+      btn.innerText = n;
+      btn.onclick = () => handleNumberSelect(n);
+      btn.id = `btn-num-${n}`;
+      keypad.appendChild(btn);
+    }
+  }
+
+  function renderRecordTrackLines() {
+    const svg = document.getElementById('trackSvg');
+    const container = document.getElementById('trackCircles');
+    svg.innerHTML = '';
+    container.innerHTML = '';
+
+    let pointsStr = TRACK_POINTS.map(p => `${p.x},${p.y}`).join(' ');
+    const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polyline.setAttribute("points", pointsStr);
+    polyline.setAttribute("fill", "none");
+    polyline.setAttribute("stroke", "#888");
+    polyline.setAttribute("stroke-width", "8");
+    polyline.setAttribute("stroke-linecap", "round");
+    polyline.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(polyline);
+
+    TRACK_POINTS.forEach((pt, i) => {
+      const circle = document.createElement('div');
+      circle.className = 'track-circle';
+      circle.id = `track-${i}`;
+      circle.style.left = `${pt.x}px`;
+      circle.style.top = `${pt.y}px`;
+      container.appendChild(circle);
+    });
+  }
+
+  /* ---------------- 語音朗讀系統 ---------------- */
+  function speakMultiplication(prev, num, product) {
+    if (gameSettings.voiceLang === 'none' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+
+    let texts = [];
+    if (prev === null) {
+      if (gameSettings.voiceLang === 'zh' || gameSettings.voiceLang === 'bilingual') {
+        texts.push({ text: `起手數字 ${num}`, lang: 'zh-TW' });
+      }
+      if (gameSettings.voiceLang === 'en' || gameSettings.voiceLang === 'bilingual') {
+        texts.push({ text: `Starting number ${num}`, lang: 'en-US' });
+      }
+    } else {
+      if (gameSettings.voiceLang === 'zh' || gameSettings.voiceLang === 'bilingual') {
+        texts.push({ text: `${prev} 乘以 ${num} 等於 ${product}`, lang: 'zh-TW' });
+      }
+      if (gameSettings.voiceLang === 'en' || gameSettings.voiceLang === 'bilingual') {
+        texts.push({ text: `${prev} times ${num} equals ${product}`, lang: 'en-US' });
+      }
+    }
+
+    texts.forEach(item => {
+      const utter = new SpeechSynthesisUtterance(item.text);
+      utter.lang = item.lang;
+      utter.rate = 0.95;
+      window.speechSynthesis.speak(utter);
+    });
+  }
+
+  /* ---------------- (2) 規則與連線加分說明面板 ---------------- */
+  function openRulesModal() {
+    showModal(`
+      <h3>📖 遊戲規則與三連線加分說明</h3>
+      <div style="text-align:left; font-size:13px; line-height:1.6; max-height:360px; overflow-y:auto; padding:5px 10px;">
+        <h4 style="color:#3f51b5; margin:8px 0 4px 0;">1. 因倍數對戰核心機制</h4>
+        <ul>
+          <li>雙方輪流從右下角選擇 <b>1 ~ 9</b> 的數字。</li>
+          <li><b>乘積運算：</b>出牌數字會自動乘上「上一手對手的數字」（第一手為單純數字）。</li>
+          <li><b>佔領因數格：</b>在左側 1~9 的倍數九宮格中，找出所有能被該乘積整除的格子手動圈選，每圈一格得 <b>1 分</b>。</li>
+        </ul>
+
+        <h4 style="color:#e65100; margin:8px 0 4px 0;">2. 井字三連線獎勵分 (🪙 金幣機制)</h4>
+        <ul>
+          <li>在任何小九宮格內，若成功將格子連成 <b>橫線、直線或斜對角線</b>，即達成「三連線」！</li>
+          <li><b>獎勵：</b>每達成一條連線，額外獲贈 <b>1 枚金幣（+2 分）</b>。</li>
+          <li><b>策略思維：</b>出牌時除了追求因數格數量最大化，亦需考量「<b>封鎖對手的連線路徑</b>」或「<b>為自己鋪陳幾何三連線</b>」，策略深度大幅提升！</li>
+        </ul>
+
+        <h4 style="color:#2e7d32; margin:8px 0 4px 0;">3. 判定與勝負</h4>
+        <ul>
+          <li>雙方各下 5 手，共 10 回合後結束。</li>
+          <li><b>總得分 = 佔領格子基本分 + 連線金幣加分 (每枚+2分)</b>，總分高者獲勝！</li>
+        </ul>
+      </div>
+      <div style="margin-top:15px;">
+        <button class="primary" onclick="closeModal()">我瞭解了</button>
+      </div>
+    `);
+  }
+
+  /* ---------------- 遊戲與語音設定面板 ---------------- */
+  function openGameSettingsModal() {
+    showModal(`
+      <h3>⚙️ 遊戲與語音設定</h3>
+      <div class="settings-group">
+        <label><b>對戰模式：</b></label>
+        <select id="cfgMode" onchange="toggleDifficultyVisibility()">
+          <option value="pve" ${gameSettings.mode === 'pve' ? 'selected' : ''}>人機對戰 (單人 vs 電腦)</option>
+          <option value="pvp" ${gameSettings.mode === 'pvp' ? 'selected' : ''}>雙人同機 (玩家1 vs 玩家2)</option>
+        </select>
+      </div>
+      <div class="settings-group" id="diffSettingRow" style="${gameSettings.mode === 'pvp' ? 'display:none;' : ''}">
+        <label><b>電腦難度：</b></label>
+        <select id="cfgDiff">
+          <option value="easy" ${gameSettings.difficulty === 'easy' ? 'selected' : ''}>初級 (小二程度)</option>
+          <option value="mid" ${gameSettings.difficulty === 'mid' ? 'selected' : ''}>中級 (小四程度)</option>
+          <option value="hard" ${gameSettings.difficulty === 'hard' ? 'selected' : ''}>高級 (九宮格局限運算)</option>
+        </select>
+      </div>
+      <div class="settings-group">
+        <label><b>語音朗讀設定：</b></label>
+        <select id="cfgVoice">
+          <option value="bilingual" ${gameSettings.voiceLang === 'bilingual' ? 'selected' : ''}>雙語朗讀 (中文 + 英文)</option>
+          <option value="zh" ${gameSettings.voiceLang === 'zh' ? 'selected' : ''}>中文朗讀 (繁體中文)</option>
+          <option value="en" ${gameSettings.voiceLang === 'en' ? 'selected' : ''}>英文朗讀 (English)</option>
+          <option value="none" ${gameSettings.voiceLang === 'none' ? 'selected' : ''}>關閉語音 (靜音)</option>
+        </select>
+      </div>
+      <div class="settings-group" style="background:#fff8e1; padding:8px 10px; border-radius:6px; border:1px solid #ffe082;">
+        <label><b>🪙 啟用九宮格連線獎勵分：</b><br><small style="color:#666;">達成橫/直/斜三連線額外獲 1 枚金幣 (+2分)</small></label>
+        <input type="checkbox" id="cfgLineBonus" ${gameSettings.lineBonus ? 'checked' : ''} style="width:20px; height:20px; cursor:pointer;">
+      </div>
+      <div style="margin-top:18px; display:flex; justify-content:center; gap:10px;">
+        <button class="primary" onclick="saveGameSettings()">儲存設定並套用</button>
+        <button onclick="closeModal()">關閉</button>
+      </div>
+    `);
+  }
+
+  function toggleDifficultyVisibility() {
+    const mode = document.getElementById('cfgMode').value;
+    document.getElementById('diffSettingRow').style.display = mode === 'pvp' ? 'none' : 'flex';
+  }
+
+  function saveGameSettings() {
+    gameSettings.mode = document.getElementById('cfgMode').value;
+    if (document.getElementById('cfgDiff')) {
+      gameSettings.difficulty = document.getElementById('cfgDiff').value;
+    }
+    gameSettings.voiceLang = document.getElementById('cfgVoice').value;
+    gameSettings.lineBonus = document.getElementById('cfgLineBonus').checked;
+    localStorage.setItem('nineGridGameSettings', JSON.stringify(gameSettings));
+    closeModal();
+    updateScoreBoardDisplay();
+    alert('遊戲設定已更新！');
+  }
+
+  function loadGameSettings() {
+    const saved = localStorage.getItem('nineGridGameSettings');
+    if (saved) gameSettings = Object.assign(gameSettings, JSON.parse(saved));
+  }
+
+  /* ---------------- 浮水印與外觀設定 ---------------- */
+  function openWatermarkSettingsModal() {
+    showModal(`
+      <h3>🎨 浮水印與倍數標籤設定</h3>
+      <div class="settings-group">
+        <label>浮水印顏色：</label>
+        <input type="color" id="cfgWmColor" value="${visualSettings.watermarkColor}" oninput="previewVisualSettings()">
+      </div>
+      <div class="settings-group">
+        <label>浮水印透明度：<span id="wmVal">${Math.round(visualSettings.watermarkOpacity * 100)}%</span></label>
+        <input type="range" id="cfgWmOpacity" min="0.1" max="1" step="0.05" value="${visualSettings.watermarkOpacity}" oninput="previewVisualSettings()">
+      </div>
+      <div class="settings-group">
+        <label>標籤文字顏色：</label>
+        <input type="color" id="cfgLabelColor" value="${visualSettings.labelColor}" oninput="previewVisualSettings()">
+      </div>
+      <div class="settings-group">
+        <label>標籤文字透明度：<span id="labelVal">${Math.round(visualSettings.labelOpacity * 100)}%</span></label>
+        <input type="range" id="cfgLabelOpacity" min="0.2" max="1" step="0.05" value="${visualSettings.labelOpacity}" oninput="previewVisualSettings()">
+      </div>
+      <div style="margin-top:18px; display:flex; justify-content:center; gap:10px;">
+        <button class="primary" onclick="saveVisualSettings()">儲存設定</button>
+        <button onclick="closeModal()">關閉</button>
+      </div>
+    `);
+  }
+
+  function previewVisualSettings() {
+    const wmColor = document.getElementById('cfgWmColor').value;
+    const wmOpacity = document.getElementById('cfgWmOpacity').value;
+    const labelColor = document.getElementById('cfgLabelColor').value;
+    const labelOpacity = document.getElementById('cfgLabelOpacity').value;
+
+    document.getElementById('wmVal').innerText = `${Math.round(wmOpacity * 100)}%`;
+    document.getElementById('labelVal').innerText = `${Math.round(labelOpacity * 100)}%`;
+
+    document.documentElement.style.setProperty('--watermark-color', wmColor);
+    document.documentElement.style.setProperty('--watermark-opacity', wmOpacity);
+    document.documentElement.style.setProperty('--label-color', labelColor);
+    document.documentElement.style.setProperty('--label-opacity', labelOpacity);
+  }
+
+  function saveVisualSettings() {
+    visualSettings.watermarkColor = document.getElementById('cfgWmColor').value;
+    visualSettings.watermarkOpacity = parseFloat(document.getElementById('cfgWmOpacity').value);
+    visualSettings.labelColor = document.getElementById('cfgLabelColor').value;
+    visualSettings.labelOpacity = parseFloat(document.getElementById('cfgLabelOpacity').value);
+    localStorage.setItem('nineGridVisualSettings', JSON.stringify(visualSettings));
+    closeModal();
+  }
+
+  function loadVisualSettings() {
+    const saved = localStorage.getItem('nineGridVisualSettings');
+    if (saved) {
+      visualSettings = JSON.parse(saved);
+      document.documentElement.style.setProperty('--watermark-color', visualSettings.watermarkColor);
+      document.documentElement.style.setProperty('--watermark-opacity', visualSettings.watermarkOpacity);
+      document.documentElement.style.setProperty('--label-color', visualSettings.labelColor);
+      document.documentElement.style.setProperty('--label-opacity', visualSettings.labelOpacity);
+    }
+  }
+
+  /* ---------------- 擲骰開局 ---------------- */
+  function initDiceRollModal() {
+    if (replayState.isActive) exitReplayMode();
+    const p2Label = gameSettings.mode === 'pvp' ? '玩家 2 (綠)' : '電腦 AI';
+    const p1Label = gameSettings.mode === 'pvp' ? '玩家 1 (藍)' : '玩家 (藍)';
+
+    showModal(`
+      <h3>🎲 擲骰決定先後手</h3>
+      <p style="font-size:13px; color:#555;">當前模式：<b>${gameSettings.mode === 'pvp' ? '雙人同機對戰' : '單人人機對戰'}</b> | 連線加分：<b>${gameSettings.lineBonus ? '已啟用🪙' : '未啟用'}</b></p>
+      <div class="dice-area">
+        <div class="dice-wrapper">
+          <span>${p1Label}</span>
+          <div class="dice" id="playerDice">?</div>
+        </div>
+        <div class="dice-wrapper">
+          <span>${p2Label}</span>
+          <div class="dice" id="aiDice">?</div>
+        </div>
+      </div>
+      <div id="diceMsg" style="min-height:24px; font-weight:bold;">點擊按鈕開始擲骰！</div>
+      <div style="margin-top:15px;" id="diceBtnGroup">
+        <button class="primary" onclick="animateDiceRoll()">擲骰！</button>
+      </div>
+    `);
+  }
+
+  function animateDiceRoll() {
+    const pDice = document.getElementById('playerDice');
+    const aiDice = document.getElementById('aiDice');
+    const msg = document.getElementById('diceMsg');
+    const btnGroup = document.getElementById('diceBtnGroup');
+    const p1Label = gameSettings.mode === 'pvp' ? '玩家 1' : '玩家';
+    const p2Label = gameSettings.mode === 'pvp' ? '玩家 2' : '電腦';
+
+    btnGroup.innerHTML = `<button disabled>擲骰中...</button>`;
+    msg.innerText = '骰子旋轉中...';
+
+    pDice.classList.add('rolling');
+    aiDice.classList.add('rolling');
+
+    let rollCount = 0;
+    const interval = setInterval(() => {
+      pDice.innerText = DICE_CHARS[Math.floor(Math.random() * 6) + 1];
+      aiDice.innerText = DICE_CHARS[Math.floor(Math.random() * 6) + 1];
+      rollCount++;
+      if (rollCount > 10) {
+        clearInterval(interval);
+        pDice.classList.remove('rolling');
+        aiDice.classList.remove('rolling');
+
+        const pVal = Math.floor(Math.random() * 6) + 1;
+        const aiVal = Math.floor(Math.random() * 6) + 1;
+        pDice.innerText = DICE_CHARS[pVal];
+        aiDice.innerText = DICE_CHARS[aiVal];
+
+        if (pVal === aiVal) {
+          msg.innerHTML = `<span style="color:#e65100;">雙方皆為 ${pVal} 點（平手）！請重新擲骰。</span>`;
+          btnGroup.innerHTML = `<button class="primary" onclick="animateDiceRoll()">重新擲骰</button>`;
+        } else {
+          const pFirst = pVal > aiVal;
+          msg.innerHTML = `${p1Label} <b>${pVal}</b> 點 vs ${p2Label} <b>${aiVal}</b> 點<br><span style="color:#2e7d32;">🎉 ${pFirst ? p1Label : p2Label} 先手！</span>`;
+          btnGroup.innerHTML = `<button class="primary" onclick="startGameAfterRoll(${pFirst})">進入對局</button>`;
+        }
+      }
+    }, 80);
+  }
+
+  function startGameAfterRoll(pFirst) {
+    closeModal();
+    const now = new Date();
+    state = {
+      gameId: 'game_' + Date.now(),
+      timestamp: now.toLocaleString(),
+      mode: gameSettings.mode,
+      lineBonusEnabled: gameSettings.lineBonus,
+      board: Array(9).fill(null).map(() => Array(9).fill(null)),
+      scores: Array(9).fill(null).map(() => ({ player: 0, ai: 0, playerLines: 0, aiLines: 0 })),
+      coins: { player: 0, ai: 0 },
+      history: [],
+      turn: pFirst ? 'player' : 'ai',
+      prevNumber: null,
+      totalRounds: 10,
+      manualPicking: false,
+      selectedNumber: null,
+      pendingTargetVal: null,
+      pendingExpectedPositions: [],
+      temporaryClaims: [],
+      diagnosticData: {
+        errorCountPerMultiplier: Array(10).fill(0),
+        decisionEfficiency: []
+      }
+    };
+
+    updateUI();
+    document.getElementById('btnFinishClaim').style.display = 'none';
+
+    if (pFirst) {
+      setKeypadDisabled(false);
+      const roleStr = gameSettings.mode === 'pvp' ? '玩家 1 (藍)' : '玩家';
+      document.getElementById('statusBar').innerText = `輪到【${roleStr}】選數字出牌`;
+    } else {
+      if (gameSettings.mode === 'pvp') {
+        setKeypadDisabled(false);
+        document.getElementById('statusBar').innerText = '輪到【玩家 2 (綠)】選數字出牌';
+      } else {
+        setKeypadDisabled(true);
+        document.getElementById('statusBar').innerText = '電腦先手，思考中...';
+        setTimeout(aiTurn, 1000);
+      }
+    }
+  }
+
+  /* ---------------- (1) 選擇數字後立即反應在紀錄區塊 ---------------- */
+  function handleNumberSelect(num) {
+    if (state.history.length >= state.totalRounds || state.manualPicking) return;
+    if (gameSettings.mode === 'pve' && state.turn !== 'player') return;
+
+    const curTurn = state.turn;
+    const curRoundIdx = state.history.length;
+
+    // (1) 即時更新右側紀錄軌道圓圈（選取當下立即反應）
+    const trackEl = document.getElementById(`track-${curRoundIdx}`);
+    if (trackEl) {
+      trackEl.innerText = num;
+      trackEl.className = 'track-circle ' + curTurn;
+    }
+
+    // 決策分析紀錄
+    const target = (state.prevNumber === null) ? num : state.prevNumber * num;
+    let chosenGain = 0, maxPossibleGain = 0, bestNum = 1;
+
+    for (let n = 1; n <= 9; n++) {
+      let t = (state.prevNumber === null) ? n : state.prevNumber * n;
+      let count = 0;
+      for (let g = 0; g < 9; g++) {
+        let b = g + 1;
+        if (t % b === 0) {
+          let c = (t / b) - 1;
+          if (c >= 0 && c < 9 && !state.board[g][c]) count++;
+        }
+      }
+      if (n === num) chosenGain = count;
+      if (count > maxPossibleGain) {
+        maxPossibleGain = count;
+        bestNum = n;
+      }
+    }
+
+    state.diagnosticData.decisionEfficiency.push({
+      round: curRoundIdx + 1,
+      who: curTurn,
+      chosenNum: num,
+      chosenGain: chosenGain,
+      maxGain: maxPossibleGain,
+      bestNum: bestNum,
+      isOptimal: chosenGain >= maxPossibleGain
+    });
+
+    // 啟動語音朗讀
+    speakMultiplication(state.prevNumber, num, target);
+
+    // 進入手動圈選階段
+    state.selectedNumber = num;
+    state.pendingTargetVal = target;
+    state.manualPicking = true;
+    state.temporaryClaims = [];
+
+    state.pendingExpectedPositions = [];
+    for (let g = 0; g < 9; g++) {
+      const base = g + 1;
+      if (target % base === 0) {
+        const factor = target / base;
+        if (factor >= 1 && factor <= 9) {
+          const c = factor - 1;
+          if (!state.board[g][c]) {
+            state.pendingExpectedPositions.push({ g, c });
+          }
+        }
+      }
+    }
+
+    setKeypadDisabled(true);
+    document.getElementById('btnFinishClaim').style.display = 'inline-block';
+    updateManualPickingStatus();
+  }
+
+  function updateManualPickingStatus() {
+    const remain = state.pendingExpectedPositions.length - state.temporaryClaims.length;
+    const curPlayerStr = state.turn === 'player' ? (gameSettings.mode === 'pvp' ? '玩家 1 (藍)' : '玩家') : '玩家 2 (綠)';
+    const targetMsg = state.prevNumber === null ? `數字 ${state.selectedNumber}` : `乘積 ${state.prevNumber}×${state.selectedNumber}=${state.pendingTargetVal}`;
+    document.getElementById('statusBar').innerText = `請【${curPlayerStr}】圈選【${targetMsg}】的所有可能格子（尚餘 ${remain} 格未圈）`;
+  }
+
+  function handleCellClick(g, c) {
+    if (!state.manualPicking) return;
+
+    const cellEl = document.getElementById(`cell-${g}-${c}`);
+    if (state.board[g][c]) {
+      triggerCellError(cellEl, '該格已被佔領！', g + 1);
+      return;
+    }
+
+    const base = g + 1;
+    const isValid = (state.pendingTargetVal % base === 0) && ((state.pendingTargetVal / base) === (c + 1));
+
+    if (!isValid) {
+      triggerCellError(cellEl, `圈選錯誤！${c + 1} 不是 ${state.pendingTargetVal} 在 ${base} 的倍數格`, base);
+      return;
+    }
+
+    const existsIdx = state.temporaryClaims.findIndex(p => p.g === g && p.c === c);
+    const selectClass = state.turn === 'player' ? 'player-selecting' : 'p2-selecting';
+
+    if (existsIdx >= 0) {
+      state.temporaryClaims.splice(existsIdx, 1);
+      cellEl.classList.remove(selectClass);
+    } else {
+      state.temporaryClaims.push({ g, c });
+      cellEl.classList.add(selectClass);
+    }
+
+    updateManualPickingStatus();
+  }
+
+  function triggerCellError(cellEl, alertMsg, multiplierBase) {
+    if (multiplierBase >= 1 && multiplierBase <= 9) {
+      state.diagnosticData.errorCountPerMultiplier[multiplierBase]++;
+    }
+
+    cellEl.classList.remove('shake-error');
+    void cellEl.offsetWidth;
+    cellEl.classList.add('shake-error');
+    document.getElementById('statusBar').innerText = `⚠️ ${alertMsg}`;
+    setTimeout(updateManualPickingStatus, 2000);
+  }
+
+  /* ---------------- (2) 連線加分計算核心 ---------------- */
+  function evaluateLineBonuses(boardData) {
+    let lines = { player: 0, ai: 0 };
+    let subgridLines = Array(9).fill(null).map(() => ({ player: 0, ai: 0 }));
+
+    for (let g = 0; g < 9; g++) {
+      const grid = boardData[g];
+      WINNING_LINES.forEach(line => {
+        const [a, b, c] = line;
+        if (grid[a] && grid[a] === grid[b] && grid[b] === grid[c]) {
+          const owner = grid[a];
+          lines[owner]++;
+          if (owner === 'player') subgridLines[g].player++;
+          if (owner === 'ai') subgridLines[g].ai++;
+        }
+      });
+    }
+    return { lines, subgridLines };
+  }
+
+  function finishCurrentClaim() {
+    const missing = state.pendingExpectedPositions.length - state.temporaryClaims.length;
+    if (missing > 0) {
+      document.getElementById('statusBar').innerText = `⚠️ 尚未完成！還有 ${missing} 個位置漏選，請仔細檢查。`;
+      return;
+    }
+
+    const curWho = state.turn;
+    state.temporaryClaims.forEach(pos => {
+      state.board[pos.g][pos.c] = curWho;
+      state.scores[pos.g][curWho]++;
+    });
+
+    // 計算三連線與金幣
+    if (gameSettings.lineBonus) {
+      const lineEval = evaluateLineBonuses(state.board);
+      state.coins = { player: lineEval.lines.player, ai: lineEval.lines.ai };
+      for (let g = 0; g < 9; g++) {
+        state.scores[g].playerLines = lineEval.subgridLines[g].player;
+        state.scores[g].aiLines = lineEval.subgridLines[g].ai;
+      }
+    }
+
+    state.history.push({
+      who: curWho,
+      num: state.selectedNumber,
+      targetVal: state.pendingTargetVal,
+      claimedPositions: [...state.temporaryClaims],
+      prev: state.prevNumber
+    });
+
+    state.prevNumber = state.selectedNumber;
+    state.manualPicking = false;
+    document.getElementById('btnFinishClaim').style.display = 'none';
+
+    state.turn = (curWho === 'player') ? 'ai' : 'player';
+
+    updateUI();
+
+    if (!checkGameOver()) {
+      if (gameSettings.mode === 'pvp') {
+        setKeypadDisabled(false);
+        const nextRole = state.turn === 'player' ? '玩家 1 (藍)' : '玩家 2 (綠)';
+        document.getElementById('statusBar').innerText = `輪到【${nextRole}】選數字出牌`;
+      } else {
+        if (state.turn === 'ai') {
+          document.getElementById('statusBar').innerText = '電腦思考中...';
+          setTimeout(aiTurn, 800);
+        } else {
+          setKeypadDisabled(false);
+          document.getElementById('statusBar').innerText = '輪到玩家出牌';
+        }
+      }
+    }
+  }
+
+  /* ---------------- 電腦 AI 自動出牌與圈選 ---------------- */
+  function aiTurn() {
+    if (state.history.length >= state.totalRounds) return;
+    const chosenNum = decideAiNumber(gameSettings.difficulty);
+    const targetVal = (state.prevNumber === null) ? chosenNum : state.prevNumber * chosenNum;
+    const curRoundIdx = state.history.length;
+
+    // (1) 電腦出牌立即反應在紀錄區
+    const trackEl = document.getElementById(`track-${curRoundIdx}`);
+    if (trackEl) {
+      trackEl.innerText = chosenNum;
+      trackEl.className = 'track-circle ai';
+    }
+
+    speakMultiplication(state.prevNumber, chosenNum, targetVal);
+
+    let claimedPositions = [];
+    for (let g = 0; g < 9; g++) {
+      const base = g + 1;
+      if (targetVal % base === 0) {
+        const factor = targetVal / base;
+        if (factor >= 1 && factor <= 9) {
+          const c = factor - 1;
+          if (!state.board[g][c]) {
+            state.board[g][c] = 'ai';
+            state.scores[g].ai++;
+            claimedPositions.push({ g, c });
+          }
+        }
+      }
+    }
+
+    if (gameSettings.lineBonus) {
+      const lineEval = evaluateLineBonuses(state.board);
+      state.coins = { player: lineEval.lines.player, ai: lineEval.lines.ai };
+      for (let g = 0; g < 9; g++) {
+        state.scores[g].playerLines = lineEval.subgridLines[g].player;
+        state.scores[g].aiLines = lineEval.subgridLines[g].ai;
+      }
+    }
+
+    state.history.push({
+      who: 'ai',
+      num: chosenNum,
+      targetVal: targetVal,
+      claimedPositions: claimedPositions,
+      prev: state.prevNumber
+    });
+
+    state.prevNumber = chosenNum;
+    state.turn = 'player';
+
+    updateUI();
+
+    if (!checkGameOver()) {
+      setKeypadDisabled(false);
+      document.getElementById('statusBar').innerText = `電腦出了 ${chosenNum}，輪到玩家出牌`;
+    }
+  }
+
+  function decideAiNumber(difficulty) {
+    const prev = state.prevNumber;
+    if (difficulty === 'easy' || prev === null) {
+      return Math.floor(Math.random() * 9) + 1;
+    }
+
+    let bestNum = 1, maxGain = -1;
+    for (let n = 1; n <= 9; n++) {
+      const target = prev * n;
+      let count = 0;
+      // 複製虛擬棋盤模擬連線加分
+      let tempBoard = JSON.parse(JSON.stringify(state.board));
+      for (let g = 0; g < 9; g++) {
+        const base = g + 1;
+        if (target % base === 0) {
+          const c = (target / base) - 1;
+          if (c >= 0 && c < 9 && !tempBoard[g][c]) {
+            tempBoard[g][c] = 'ai';
+            count++;
+          }
+        }
+      }
+
+      // 高級難度計入連線加分權重
+      if (difficulty === 'hard' && gameSettings.lineBonus) {
+        let linesAfter = evaluateLineBonuses(tempBoard).lines.ai;
+        count += (linesAfter - state.coins.ai) * 2;
+      }
+
+      if (count > maxGain) {
+        maxGain = count;
+        bestNum = n;
+      }
+    }
+    return bestNum;
+  }
+
+  /* ---------------- UI 渲染與計分 ---------------- */
+  function updateUI() {
+    for (let g = 0; g < 9; g++) {
+      for (let c = 0; c < 9; c++) {
+        const el = document.getElementById(`cell-${g}-${c}`);
+        el.className = 'cell';
+        if (state.board[g][c] === 'player') el.classList.add('player-claimed');
+        if (state.board[g][c] === 'ai') el.classList.add('ai-claimed');
+      }
+    }
+
+    // 更新紀錄區
+    for (let i = 0; i < 10; i++) {
+      const circle = document.getElementById(`track-${i}`);
+      if (circle) {
+        if (state.history[i]) {
+          circle.innerText = state.history[i].num;
+          circle.className = 'track-circle ' + state.history[i].who;
+        } else if (!state.manualPicking || i !== state.history.length) {
+          circle.innerText = '';
+          circle.className = 'track-circle';
+        }
+      }
+    }
+
+    updateScoreBoardDisplay();
+  }
+
+  function updateScoreBoardDisplay() {
+    let baseP = 0, baseAi = 0;
+    const isPvP = state.mode === 'pvp';
+
+    for (let g = 0; g < 9; g++) {
+      const sc = state.scores[g];
+      baseP += sc.player;
+      baseAi += sc.ai;
+      let coinTag = '';
+      if (gameSettings.lineBonus && (sc.playerLines > 0 || sc.aiLines > 0)) {
+        coinTag = `<span style="font-size:9px; color:#f57f17;">🪙${sc.playerLines}/${sc.aiLines}</span>`;
+      }
+      document.getElementById(`score-cell-${g}`).innerHTML = 
+        `<span class="score-p">${isPvP ? 'P1' : 'P'}:${sc.player}</span><span class="score-ai">${isPvP ? 'P2' : 'AI'}:${sc.ai}</span>${coinTag}`;
+    }
+
+    let finalP = baseP + (gameSettings.lineBonus ? state.coins.player * 2 : 0);
+    let finalAi = baseAi + (gameSettings.lineBonus ? state.coins.ai * 2 : 0);
+
+    document.getElementById('vsBadge').innerText = `(${finalP}) vs (${finalAi})`;
+
+    const coinBadge = document.getElementById('coinBadge');
+    if (gameSettings.lineBonus) {
+      coinBadge.style.display = 'block';
+      coinBadge.innerText = `🪙 連線金幣 (${state.coins.player}) vs (${state.coins.ai})`;
+    } else {
+      coinBadge.style.display = 'none';
+    }
+  }
+
+  function setKeypadDisabled(disabled) {
+    for (let n = 1; n <= 9; n++) {
+      document.getElementById(`btn-num-${n}`).disabled = disabled;
+    }
+  }
+
+  function checkGameOver() {
+    if (state.history.length >= state.totalRounds) {
+      setKeypadDisabled(true);
+      document.getElementById('btnFinishClaim').style.display = 'none';
+
+      let baseP = 0, baseAi = 0;
+      state.scores.forEach(s => { baseP += s.player; baseAi += s.ai; });
+      let finalP = baseP + (gameSettings.lineBonus ? state.coins.player * 2 : 0);
+      let finalAi = baseAi + (gameSettings.lineBonus ? state.coins.ai * 2 : 0);
+
+      let winnerMsg = '';
+      if (state.mode === 'pvp') {
+        winnerMsg = finalP > finalAi ? '🎉 玩家 1 (藍) 獲勝！' : (finalAi > finalP ? '🎉 玩家 2 (綠) 獲勝！' : '🤝 平手局！');
+      } else {
+        winnerMsg = finalP > finalAi ? '🎉 恭喜玩家獲勝！' : (finalAi > finalP ? '🤖 電腦獲勝！' : '🤝 平手局！');
+      }
+
+      autoArchiveGame(finalP, finalAi);
+
+      let bonusText = gameSettings.lineBonus ? `<p style="font-size:13px; color:#b78103;">（含連線加分：P1 獲 ${state.coins.player} 枚金幣 +${state.coins.player*2}分 vs P2 獲 ${state.coins.ai} 枚金幣 +${state.coins.ai*2}分）</p>` : '';
+
+      showModal(`
+        <h2>對局結束</h2>
+        <p style="font-size:22px; font-weight:bold;">${winnerMsg}</p>
+        <p>最終總比分：${state.mode === 'pvp' ? '玩家1' : '玩家'} <b>${finalP}</b> 分 vs ${state.mode === 'pvp' ? '玩家2' : '電腦'} <b>${finalAi}</b> 分</p>
+        ${bonusText}
+        <div style="margin-top:15px; display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">
+          <button class="diag-btn" onclick="closeModal(); openDiagnosticModal(state)">📊 查看學習診斷表</button>
+          <button class="history-btn" onclick="closeModal(); startReplayGame(state)">🔍 賽後復盤</button>
+          <button class="primary" onclick="closeModal()">確認</button>
+        </div>
+      `);
+      return true;
+    }
+    return false;
+  }
+
+  /* ---------------- 學生學習診斷表 ---------------- */
+  function openDiagnosticModal(targetState) {
+    if (!targetState || !targetState.history || targetState.history.length === 0) {
+      alert('目前尚無對局資料可進行診斷分析！');
+      return;
+    }
+
+    const diag = targetState.diagnosticData || { errorCountPerMultiplier: Array(10).fill(0), decisionEfficiency: [] };
+    const errs = diag.errorCountPerMultiplier;
+    const decisions = diag.decisionEfficiency || [];
+
+    let tableRows = '';
+    let weakAreas = [];
+
+    for (let m = 1; m <= 9; m++) {
+      let errCount = errs[m] || 0;
+      let statusClass = 'prof-high';
+      let statusText = '熟練 (精確)';
+      if (errCount >= 3) {
+        statusClass = 'prof-low';
+        statusText = '待加強 (易混淆)';
+        weakAreas.push(`${m}的倍數`);
+      } else if (errCount >= 1) {
+        statusClass = 'prof-mid';
+        statusText = '良好 (偶有失誤)';
+      }
+      tableRows += `
+        <tr>
+          <td><b>${m} 的倍數區</b></td>
+          <td>${errCount} 次</td>
+          <td class="${statusClass}">${statusText}</td>
+        </tr>
+      `;
+    }
+
+    let optimalCount = decisions.filter(d => d.isOptimal).length;
+    let totalDecisions = decisions.length;
+    let efficiencyRate = totalDecisions > 0 ? Math.round((optimalCount / totalDecisions) * 100) : 100;
+
+    let pedagogicalAdvice = '';
+    if (weakAreas.length > 0) {
+      pedagogicalAdvice = `⚠️ <b>教學指引建議：</b>學生在【${weakAreas.join('、')}】出現較多次誤選，建議針對該乘法表與因數拆解進行個別加強。`;
+    } else {
+      pedagogicalAdvice = `🌟 <b>教學指引建議：</b>學生因倍數觀念非常扎實，在各九宮格皆無明顯誤選！`;
+    }
+
+    showModal(`
+      <h3>📊 學生因倍數學習診斷分析表</h3>
+      <p style="font-size:12px; color:#666;">對局時間：${targetState.timestamp || '最新對局'} | 模式：${targetState.mode === 'pvp' ? '雙人對戰' : '人機對戰'}</p>
+      
+      <div style="background:#e3f2fd; padding:10px; border-radius:6px; margin:8px 0; font-size:13px; text-align:left;">
+        <b>🎯 選號決策敏銳度：</b>${efficiencyRate}% (${optimalCount}/${totalDecisions} 次選擇最佳期望值)<br>
+        ${pedagogicalAdvice}
+      </div>
+
+      <table class="diag-table">
+        <thead>
+          <tr>
+            <th>九宮格倍數區</th>
+            <th>圈選失誤次數</th>
+            <th>概念熟練度評估</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+
+      <div style="margin-top:15px; display:flex; justify-content:center; gap:10px;">
+        <button class="pdf-btn" onclick="window.print()">🖨️ 列印/導出診斷表</button>
+        <button class="primary" onclick="closeModal()">關閉</button>
+      </div>
+    `);
+  }
+
+  /* ---------------- 永久歷史庫與復盤 ---------------- */
+  function getHistoryList() {
+    const list = localStorage.getItem('nineGridGameArchiveList');
+    return list ? JSON.parse(list) : [];
+  }
+
+  function autoArchiveGame(totalP, totalAi) {
+    let archives = getHistoryList();
+    const gameRecord = {
+      gameId: state.gameId || 'game_' + Date.now(),
+      timestamp: state.timestamp || new Date().toLocaleString(),
+      mode: state.mode,
+      lineBonusEnabled: state.lineBonusEnabled,
+      totalP: totalP,
+      totalAi: totalAi,
+      coins: JSON.parse(JSON.stringify(state.coins)),
+      history: JSON.parse(JSON.stringify(state.history)),
+      scores: JSON.parse(JSON.stringify(state.scores)),
+      board: JSON.parse(JSON.stringify(state.board)),
+      diagnosticData: JSON.parse(JSON.stringify(state.diagnosticData))
+    };
+    const existIdx = archives.findIndex(g => g.gameId === gameRecord.gameId);
+    if (existIdx >= 0) {
+      archives[existIdx] = gameRecord;
+    } else {
+      archives.unshift(gameRecord);
+    }
+    localStorage.setItem('nineGridGameArchiveList', JSON.stringify(archives));
+  }
+
+  function openHistoryModal() {
+    const archives = getHistoryList();
+    if (archives.length === 0) {
+      showModal(`<h3>📚 對局歷史庫</h3><p>目前尚無永久保存的對局記錄。</p><button class="primary" onclick="closeModal()">關閉</button>`);
+      return;
+    }
+
+    let listHtml = archives.map((g, idx) => `
+      <div class="history-item">
+        <div style="text-align:left;">
+          <b>#${archives.length - idx} ${g.timestamp}</b> [${g.mode === 'pvp' ? '雙人' : '單人'}]<br>
+          比分：<span style="color:var(--player-color)">P1: ${g.totalP}</span> vs <span style="color:var(--ai-color)">${g.mode === 'pvp' ? 'P2' : 'AI'}: ${g.totalAi}</span>
+        </div>
+        <div>
+          <button class="diag-btn" onclick="closeModal(); openDiagnosticModal(getHistoryList()[${idx}])">診斷</button>
+          <button class="history-btn" onclick="closeModal(); startReplayGame(getHistoryList()[${idx}])">復盤</button>
+          <button style="color:red;" onclick="deleteArchivedGame('${g.gameId}')">刪除</button>
+        </div>
+      </div>
+    `).join('');
+
+    showModal(`
+      <h3>📚 對局歷史庫 (共 ${archives.length} 局)</h3>
+      <div style="max-height:280px; overflow-y:auto; margin:10px 0;">${listHtml}</div>
+      <button class="primary" onclick="closeModal()">關閉</button>
+    `);
+  }
+
+  function deleteArchivedGame(gameId) {
+    let archives = getHistoryList().filter(g => g.gameId !== gameId);
+    localStorage.setItem('nineGridGameArchiveList', JSON.stringify(archives));
+    openHistoryModal();
+  }
+
+  function startReplayGame(archivedGame) {
+    replayState.isActive = true;
+    replayState.targetGame = archivedGame;
+    replayState.currentStep = archivedGame.history.length;
+
+    document.getElementById('replayBar').style.display = 'flex';
+    document.getElementById('mainToolbar').style.opacity = '0.5';
+    setKeypadDisabled(true);
+    renderReplayStep();
+  }
+
+  function stepReplay(action) {
+    if (!replayState.isActive) return;
+    const maxSteps = replayState.targetGame.history.length;
+
+    if (action === 'first') replayState.currentStep = 0;
+    if (action === 'prev') replayState.currentStep = Math.max(0, replayState.currentStep - 1);
+    if (action === 'next') replayState.currentStep = Math.min(maxSteps, replayState.currentStep + 1);
+    if (action === 'last') replayState.currentStep = maxSteps;
+
+    renderReplayStep();
+  }
+
+  function renderReplayStep() {
+    const hist = replayState.targetGame.history;
+    const step = replayState.currentStep;
+    const maxSteps = hist.length;
+    const isPvP = replayState.targetGame.mode === 'pvp';
+
+    document.getElementById('replayStepIndicator').innerText = `第 ${step} / ${maxSteps} 手`;
+
+    let simBoard = Array(9).fill(null).map(() => Array(9).fill(null));
+    let simScores = Array(9).fill(null).map(() => ({ player: 0, ai: 0, playerLines: 0, aiLines: 0 }));
+
+    for (let i = 0; i < step; i++) {
+      const h = hist[i];
+      h.claimedPositions.forEach(p => {
+        simBoard[p.g][p.c] = h.who;
+        simScores[p.g][h.who]++;
+      });
+    }
+
+    let lineEval = evaluateLineBonuses(simBoard);
+    let simCoins = { player: lineEval.lines.player, ai: lineEval.lines.ai };
+
+    for (let g = 0; g < 9; g++) {
+      for (let c = 0; c < 9; c++) {
+        const el = document.getElementById(`cell-${g}-${c}`);
+        el.className = 'cell';
+        if (simBoard[g][c] === 'player') el.classList.add('player-claimed');
+        if (simBoard[g][c] === 'ai') el.classList.add('ai-claimed');
+      }
+    }
+
+    for (let i = 0; i < 10; i++) {
+      const circle = document.getElementById(`track-${i}`);
+      circle.className = 'track-circle';
+      if (i < step) {
+        circle.innerText = hist[i].num;
+        circle.classList.add(hist[i].who);
+      } else {
+        circle.innerText = '';
+      }
+    }
+
+    let totalP = 0, totalAi = 0;
+    for (let g = 0; g < 9; g++) {
+      const sc = simScores[g];
+      totalP += sc.player;
+      totalAi += sc.ai;
+      let coinTag = '';
+      if (replayState.targetGame.lineBonusEnabled && (lineEval.subgridLines[g].player > 0 || lineEval.subgridLines[g].ai > 0)) {
+        coinTag = `<span style="font-size:9px; color:#f57f17;">🪙${lineEval.subgridLines[g].player}/${lineEval.subgridLines[g].ai}</span>`;
+      }
+      document.getElementById(`score-cell-${g}`).innerHTML = 
+        `<span class="score-p">${isPvP ? 'P1' : 'P'}:${sc.player}</span><span class="score-ai">${isPvP ? 'P2' : 'AI'}:${sc.ai}</span>${coinTag}`;
+    }
+
+    let finalP = totalP + (replayState.targetGame.lineBonusEnabled ? simCoins.player * 2 : 0);
+    let finalAi = totalAi + (replayState.targetGame.lineBonusEnabled ? simCoins.ai * 2 : 0);
+
+    document.getElementById('vsBadge').innerText = `(${finalP}) vs (${finalAi})`;
+
+    const coinBadge = document.getElementById('coinBadge');
+    if (replayState.targetGame.lineBonusEnabled) {
+      coinBadge.style.display = 'block';
+      coinBadge.innerText = `🪙 連線金幣 (${simCoins.player}) vs (${simCoins.ai})`;
+    } else {
+      coinBadge.style.display = 'none';
+    }
+
+    const detailEl = document.getElementById('replayMoveDetail');
+    if (step === 0) {
+      detailEl.innerHTML = '初始開局狀態';
+    } else {
+      const cur = hist[step - 1];
+      const roleStr = cur.who === 'player' ? (isPvP ? '👤 玩家 1' : '👤 玩家') : (isPvP ? '👤 玩家 2' : '🤖 電腦');
+      const calcStr = cur.prev ? `${cur.prev} × ${cur.num} = ${cur.targetVal}` : `選 ${cur.num} (目標值: ${cur.targetVal})`;
+      detailEl.innerHTML = `${roleStr}：<b>${calcStr}</b>，圈選 <b>${cur.claimedPositions.length}</b> 格`;
+    }
+  }
+
+  function exitReplayMode() {
+    replayState.isActive = false;
+    replayState.targetGame = null;
+    document.getElementById('replayBar').style.display = 'none';
+    document.getElementById('mainToolbar').style.opacity = '1';
+    updateUI();
+    setKeypadDisabled(state.turn !== 'player' || state.history.length >= state.totalRounds);
+  }
+
+  function exportToPDF() {
+    window.print();
+  }
+
+  function showModal(content) {
+    document.getElementById('modalContent').innerHTML = content;
+    document.getElementById('modal').style.display = 'flex';
+  }
+  function closeModal() {
+    document.getElementById('modal').style.display = 'none';
+  }
+
+  window.onload = () => {
+    initLayout();
+    loadGameSettings();
+    loadVisualSettings();
+    setKeypadDisabled(true);
+  };
+</script>
+</body>
+</html>

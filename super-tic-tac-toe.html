@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>超級井字遊戲 (Ultimate Tic-Tac-Toe) - 職業 AI 與慶祝特效版</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .board-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .sub-board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+    /* 2 色區隔 */
+    .bg-board-a { background-color: #f1f5f9; }
+    .bg-board-b { background-color: #e2e8f0; }
+    
+    /* 經典模式：限定目標分區閃爍提示 */
+    @keyframes targetBoardPulse {
+      0% { ring-color: #10b981; box-shadow: 0 0 0 3px #10b981; }
+      50% { ring-color: #34d399; box-shadow: 0 0 0 6px #34d399; }
+      100% { ring-color: #10b981; box-shadow: 0 0 0 3px #10b981; }
+    }
+    .target-board {
+      animation: targetBoardPulse 1.5s infinite;
+      border-radius: 0.75rem;
+      z-index: 2;
+    }
+
+    .cell {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.25rem;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+    .cell:hover:not(.occupied) {
+      background-color: #cbd5e1;
+    }
+    .cell.occupied {
+      cursor: not-allowed;
+    }
+    
+    /* 最新落子黃色閃爍動畫 */
+    @keyframes yellowPulse {
+      0% { background-color: #fde047; box-shadow: inset 0 0 10px #eab308; transform: scale(1.05); }
+      50% { background-color: #fef08a; box-shadow: inset 0 0 15px #ca8a04; transform: scale(1.02); }
+      100% { background-color: white; transform: scale(1); }
+    }
+    .last-move-highlight {
+      animation: yellowPulse 1s ease-in-out infinite;
+      animation-duration: 3s;
+      z-index: 5;
+    }
+
+    .sub-board-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 5rem;
+      font-weight: 900;
+      background-color: rgba(255, 255, 255, 0.88);
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* 全螢幕煙火 Canvas */
+    #fireworks-canvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 60;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 font-sans">
+  <!-- 煙火動畫畫布 -->
+  <canvas id="fireworks-canvas"></canvas>
+
+  <div class="max-w-6xl mx-auto space-y-6">
+    
+    <!-- 頁首與選單 -->
+    <header class="flex flex-wrap justify-between items-center bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-extrabold text-indigo-400">超級井字遊戲 9x9</h1>
+        <p class="text-xs text-slate-400">大井字包小井字 • 人機對弈系統v2.0 【高雄市國教輔導團數學分團設計】</p>
+      </div>
+
+      <div class="flex items-center gap-3 mt-2 md:mt-0 flex-wrap">
+        <div class="flex items-center bg-slate-700/60 px-3 py-1.5 rounded-lg border border-slate-600 gap-2">
+          <button id="btn-mute" class="text-base hover:scale-110 transition">🔊</button>
+          <input id="input-volume" type="range" min="0" max="1" step="0.1" value="0.7" class="w-16 accent-indigo-500 h-1.5 cursor-pointer">
+        </div>
+        <button id="btn-rules" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg text-sm font-medium transition">📜 規則說明</button>
+        <button id="btn-leaderboard" class="bg-amber-600 hover:bg-amber-500 px-3 py-1.5 rounded-lg text-sm font-medium transition">🏆 排行榜</button>
+        <button id="btn-history" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg text-sm font-medium transition">📁 復盤/歷史</button>
+      </div>
+    </header>
+
+    <!-- 規則說明彈窗 -->
+    <div id="rules-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-xl w-full space-y-4">
+        <h2 class="text-xl font-bold text-indigo-400 border-b border-slate-700 pb-2">📖 遊戲規則說明</h2>
+        <ul class="text-sm space-y-2 text-slate-300 list-disc pl-5">
+          <li><b>大棋盤包含 9 個小棋盤</b>，總共 81 格。小棋盤以 2 色相鄰棋盤視覺區隔。</li>
+          <li><b>模式切換</b>：
+            <br>• <b>自由落子</b>：可在任何未鎖定的小棋盤落子。
+            <br>• <b>經典派牌/指定區</b>：上一手落子在小棋盤的位置（如右上角），將強制指定對手必須落在相對應的小棋盤（右上分區）。若該分區已鎖定，則恢復自由落子。
+          </li>
+          <li><b>最新落子標示</b>：雙方落子均會有<b>黃色閃爍 (約3秒)</b>提示。</li>
+          <li><b>小井字勝出</b>：率先於小棋盤取得三連線者奪下該區，並鎖定該區。</li>
+          <li><b>思考限時與罰牌</b>：倒數 3 秒警告音，逾時記<b>黃牌 1 次</b>，累積 <b>2 次（紅牌）</b>直接判敗。</li>
+        </ul>
+        <button id="btn-close-rules" class="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded-lg font-bold">關閉</button>
+      </div>
+    </div>
+
+    <!-- 遊戲主區塊 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- 左側：設定與狀態區 -->
+      <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-5">
+        <div>
+          <h2 class="text-lg font-bold text-slate-200 mb-3">⚙️ 開局設定</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">AI 難度等級</label>
+              <select id="select-difficulty" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm">
+                <option value="easy">初級 (小二 - 基本圍堵)</option>
+                <option value="medium">中級 (小四 - 主動攻擊)</option>
+                <option value="hard">高級 (小六 - 攻防評估)</option>
+                <option value="pro" selected>最高級 (國中 - 職業棋手最佳解)</option>
+              </select>
+            </div>
+            
+            <!-- 經典派牌模式開關 -->
+            <div class="flex justify-between items-center bg-slate-700/40 p-2.5 rounded-lg border border-slate-600/50">
+              <span class="text-xs text-slate-300">落子模式</span>
+              <button id="btn-mode-toggle" class="bg-indigo-600 hover:bg-indigo-500 text-xs px-3 py-1.5 rounded-md font-bold transition">
+                🌐 自由落子
+              </button>
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">每手思考時間 (秒)</label>
+              <input id="input-timer" type="number" value="15" min="5" max="60" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm">
+            </div>
+            <button id="btn-start" class="w-full bg-indigo-600 hover:bg-indigo-500 py-2.5 rounded-xl font-bold shadow-lg text-white transition">🎲 擲骰子決定先後手開局</button>
+          </div>
+        </div>
+
+        <hr class="border-slate-700">
+
+        <!-- 對戰狀態 -->
+        <div>
+          <h2 class="text-lg font-bold text-slate-200 mb-3">📊 當前對局狀態</h2>
+          <div class="bg-slate-900/60 p-4 rounded-xl space-y-3 border border-slate-700/50">
+            <div class="flex justify-between items-center text-sm">
+              <span>當前回合：</span>
+              <span id="turn-display" class="font-bold text-indigo-400 text-base">未開局</span>
+            </div>
+            <div class="flex justify-between items-center text-sm">
+              <span>指定落子區：</span>
+              <span id="target-board-display" class="font-bold text-emerald-400 text-sm">全盤自由</span>
+            </div>
+            <div class="flex justify-between items-center text-sm">
+              <span>剩餘思考時間：</span>
+              <span id="timer-display" class="font-mono text-xl font-bold text-amber-400">15s</span>
+            </div>
+            <div class="border-t border-slate-800 pt-2 text-xs space-y-1 text-slate-400">
+              <div class="flex justify-between">
+                <span>玩家 (◯/✕) 黃牌：</span>
+                <span id="foul-player" class="text-amber-500 font-bold">0 / 2</span>
+              </div>
+              <div class="flex justify-between">
+                <span>AI (◯/✕) 黃牌：</span>
+                <span id="foul-ai" class="text-amber-500 font-bold">0 / 2</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 評估註解 -->
+        <div class="bg-indigo-950/40 border border-indigo-800/50 p-4 rounded-xl space-y-2">
+          <div class="flex items-center gap-2 text-indigo-300 font-bold text-sm">
+            <span>🤖 AI 戰術評估註解</span>
+          </div>
+          <p id="ai-commentary" class="text-xs text-indigo-200/80 italic leading-relaxed min-h-[3rem] flex items-center">
+            等待對局開始... AI 戰術分析將即時呈現於此。
+          </p>
+        </div>
+
+        <!-- 復盤控制列 -->
+        <div id="replay-controls" class="hidden bg-slate-900/60 p-4 rounded-xl border border-slate-700/50 space-y-3">
+          <h3 class="text-sm font-bold text-emerald-400">🎬 賽局復盤模式</h3>
+          <div class="flex gap-2">
+            <button id="btn-prev" class="flex-1 bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-sm">上一手</button>
+            <button id="btn-next" class="flex-1 bg-slate-700 hover:bg-slate-600 py-1.5 rounded text-sm">下一手</button>
+          </div>
+          <p id="replay-step" class="text-xs text-center text-slate-400">步數：0 / 0</p>
+        </div>
+      </div>
+
+      <!-- 右側：9x9 主棋盤區 -->
+      <div class="lg:col-span-2 bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col items-center justify-center">
+        <div id="main-board" class="board-grid w-full max-w-[600px] aspect-square bg-slate-900 p-2 rounded-xl">
+          <!-- 81個棋格 -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- AI 獲勝/讚賞 Modal -->
+  <div id="ai-win-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div class="bg-slate-800 border border-indigo-500/50 p-6 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
+      <div class="text-5xl">🤖💬</div>
+      <h3 class="text-xl font-bold text-indigo-400">AI 戰術大師緻致意</h3>
+      <p id="ai-quote-text" class="text-sm text-slate-200 leading-relaxed italic border-y border-slate-700 py-4">
+        「高手過招令我三生有幸！這局棋精彩絕倫，期待與你再次交手！」
+      </p>
+      <button id="btn-close-ai-win" class="w-full bg-indigo-600 hover:bg-indigo-500 py-2 rounded-lg font-bold">致敬並收下棋局</button>
+    </div>
+  </div>
+
+  <!-- 擲骰Modal -->
+  <div id="dice-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-sm w-full text-center space-y-4">
+      <h3 class="text-xl font-bold text-indigo-400">🎲 擲骰判定先後手</h3>
+      <div id="dice-result" class="text-4xl my-4">🎲 vs 🎲</div>
+      <p id="dice-status" class="text-sm text-slate-300">正在擲骰子中...</p>
+    </div>
+  </div>
+
+  <!-- 排行榜/歷史紀錄Modal -->
+  <div id="data-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+    <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-xl w-full space-y-4 max-h-[80vh] flex flex-col">
+      <h2 id="data-modal-title" class="text-xl font-bold text-indigo-400 border-b border-slate-700 pb-2">數據統計</h2>
+      <div id="data-modal-content" class="overflow-y-auto flex-1 text-sm text-slate-300 space-y-2"></div>
+      <button id="btn-close-data" class="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded-lg font-bold">關閉</button>
+    </div>
+  </div>
+
+  <script>
+    // --- 煙火慶祝特效 (Canvas) ---
+    class Fireworks {
+      constructor() {
+        this.canvas = document.getElementById('fireworks-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.particles = [];
+        this.animId = null;
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+      }
+      resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+      }
+      start() {
+        this.stop();
+        for (let i = 0; i < 5; i++) {
+          setTimeout(() => this.createBurst(), i * 300);
+        }
+        this.animate();
+      }
+      stop() {
+        if (this.animId) cancelAnimationFrame(this.animId);
+        this.particles = [];
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+      createBurst() {
+        const x = Math.random() * this.canvas.width;
+        const y = Math.random() * (this.canvas.height * 0.6);
+        const count = 60;
+        for (let i = 0; i < count; i++) {
+          const angle = (Math.PI * 2 / count) * i;
+          const speed = Math.random() * 5 + 2;
+          this.particles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: `hsl(${Math.random() * 360}, 100%, 60%)`,
+            alpha: 1
+          });
+        }
+      }
+      animate() {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.particles.forEach((p, idx) => {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.05; // 重力
+          p.alpha -= 0.015;
+          this.ctx.globalAlpha = Math.max(0, p.alpha);
+          this.ctx.fillStyle = p.color;
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+          this.ctx.fill();
+          if (p.alpha <= 0) this.particles.splice(idx, 1);
+        });
+        if (this.particles.length > 0) {
+          this.animId = requestAnimationFrame(() => this.animate());
+        }
+      }
+    }
+    const fireworks = new Fireworks();
+
+    // --- 音效系統 ---
+    class SoundEffects {
+      constructor() {
+        this.ctx = null;
+        this.volume = 0.7;
+        this.isMuted = false;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+        }
+      }
+      playTone(freq, type, duration, gainVal = 1) {
+        if (this.isMuted) return;
+        this.init();
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(this.volume * gainVal, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+      }
+      playPlaceSound() { this.playTone(180, 'sine', 0.08, 0.8); }
+      playSubWinSound() {
+        if (this.isMuted) return;
+        setTimeout(() => this.playTone(523.25, 'triangle', 0.15, 0.8), 0);
+        setTimeout(() => this.playTone(659.25, 'triangle', 0.15, 0.8), 120);
+        setTimeout(() => this.playTone(783.99, 'triangle', 0.3, 0.8), 240);
+      }
+      playWarningBeep() { this.playTone(880, 'square', 0.1, 0.3); }
+      playRedCardAlarm() {
+        if (this.isMuted) return;
+        for (let i = 0; i < 3; i++) {
+          setTimeout(() => this.playTone(400, 'sawtooth', 0.18, 0.9), i * 200);
+          setTimeout(() => this.playTone(800, 'sawtooth', 0.18, 0.9), i * 200 + 90);
+        }
+      }
+    }
+    const sounds = new SoundEffects();
+
+    // --- 全域遊戲狀態 ---
+    const WINNING_COMBOS = [
+      [0,1,2], [3,4,5], [6,7,8],
+      [0,3,6], [1,4,7], [2,5,8],
+      [0,4,8], [2,4,6]
+    ];
+
+    let gameState = {
+      cells: Array(81).fill(null),
+      macroBoard: Array(9).fill(null),
+      currentPlayer: 'O',
+      humanSymbol: 'O',
+      aiSymbol: 'X',
+      difficulty: 'pro',            // easy, medium, hard, pro
+      isClassicMode: false,          // 經典指定區開關 (預設 false: 自由落子)
+      activeBoardIdx: null,          // 指定的小棋盤索引 (null 代表自由落子)
+      timerSec: 15,
+      currentTimer: 15,
+      timerInterval: null,
+      fouls: { O: 0, X: 0 },
+      isGameOver: false,
+      history: [],
+      replayIndex: -1,
+      lastMoveGlobalIdx: null
+    };
+
+    const AI_PRAISE_QUOTES = [
+      "「高手過招令我三生有幸！這局棋精彩絕倫，期待與你再次交手！」",
+      "「你是百年難得一見的棋藝奇才，剛才那一著佈局讓我獲益良多！」",
+      "「精彩的對局！你在大棋盤戰略上的敏銳度簡直令人讚嘆。」",
+      "「棋逢對手，將心比心！這是一場足以載入棋譜的經典之戰！」"
+    ];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initBoardUI();
+      bindEvents();
+    });
+
+    function initBoardUI() {
+      const boardElem = document.getElementById('main-board');
+      boardElem.innerHTML = '';
+
+      for (let b = 0; b < 9; b++) {
+        const bgColorClass = (Math.floor(b / 3) + (b % 3)) % 2 === 0 ? 'bg-board-a' : 'bg-board-b';
+        
+        const subBoard = document.createElement('div');
+        subBoard.className = `sub-board ${bgColorClass} p-1.5 rounded-lg border border-slate-600/40`;
+        subBoard.id = `subboard-${b}`;
+        subBoard.dataset.boardIdx = b;
+
+        for (let c = 0; c < 9; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell bg-white/70 text-slate-800 rounded shadow-sm hover:bg-white';
+          cell.dataset.boardIdx = b;
+          cell.dataset.cellIdx = c;
+          cell.addEventListener('click', () => handleCellClick(b, c));
+          subBoard.appendChild(cell);
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'sub-board-overlay hidden';
+        overlay.id = `overlay-${b}`;
+        subBoard.appendChild(overlay);
+
+        boardElem.appendChild(subBoard);
+      }
+    }
+
+    function bindEvents() {
+      document.getElementById('btn-rules').onclick = () => toggleModal('rules-modal', true);
+      document.getElementById('btn-close-rules').onclick = () => toggleModal('rules-modal', false);
+      document.getElementById('btn-close-data').onclick = () => toggleModal('data-modal', false);
+      document.getElementById('btn-close-ai-win').onclick = () => toggleModal('ai-win-modal', false);
+      document.getElementById('btn-start').onclick = startNewGameFlow;
+      document.getElementById('btn-leaderboard').onclick = showLeaderboard;
+      document.getElementById('btn-history').onclick = showHistoryGames;
+      document.getElementById('btn-prev').onclick = () => stepReplay(-1);
+      document.getElementById('btn-next').onclick = () => stepReplay(1);
+
+      // 模式切換按鈕
+      const modeBtn = document.getElementById('btn-mode-toggle');
+      modeBtn.onclick = () => {
+        gameState.isClassicMode = !gameState.isClassicMode;
+        modeBtn.textContent = gameState.isClassicMode ? '🎯 經典指定區' : '🌐 自由落子';
+        modeBtn.className = gameState.isClassicMode ? 
+          'bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-md font-bold transition' :
+          'bg-indigo-600 hover:bg-indigo-500 text-xs px-3 py-1.5 rounded-md font-bold transition';
+      };
+
+      // 音量控制
+      const btnMute = document.getElementById('btn-mute');
+      const inputVol = document.getElementById('input-volume');
+      btnMute.onclick = () => {
+        sounds.isMuted = !sounds.isMuted;
+        btnMute.textContent = sounds.isMuted ? '🔇' : '🔊';
+      };
+      inputVol.oninput = (e) => {
+        sounds.volume = parseFloat(e.target.value);
+        sounds.isMuted = sounds.volume === 0;
+        btnMute.textContent = sounds.isMuted ? '🔇' : '🔊';
+      };
+    }
+
+    function toggleModal(id, show) {
+      document.getElementById(id).classList.toggle('hidden', !show);
+    }
+
+    // --- 開局流程 ---
+    function startNewGameFlow() {
+      sounds.init();
+      fireworks.stop();
+      const difficulty = document.getElementById('select-difficulty').value;
+      const timerSec = parseInt(document.getElementById('input-timer').value) || 15;
+
+      gameState.difficulty = difficulty;
+      gameState.timerSec = timerSec;
+
+      toggleModal('dice-modal', true);
+      rollDiceSequence((humanFirst) => {
+        toggleModal('dice-modal', false);
+        resetGame(humanFirst);
+      });
+    }
+
+    function rollDiceSequence(callback) {
+      const diceStatus = document.getElementById('dice-status');
+      const diceResult = document.getElementById('dice-result');
+      diceStatus.textContent = "擲骰比大小中...";
+
+      let rolls = 0;
+      const interval = setInterval(() => {
+        sounds.playPlaceSound();
+        const pDice = Math.floor(Math.random() * 6) + 1;
+        const aiDice = Math.floor(Math.random() * 6) + 1;
+        diceResult.textContent = `👤 ${pDice} vs 🤖 ${aiDice}`;
+        rolls++;
+
+        if (rolls > 10) {
+          clearInterval(interval);
+          const pFinal = Math.floor(Math.random() * 6) + 1;
+          const aiFinal = Math.floor(Math.random() * 6) + 1;
+          diceResult.textContent = `👤 ${pFinal} vs 🤖 ${aiFinal}`;
+
+          if (pFinal > aiFinal) {
+            diceStatus.textContent = "你贏了！你持 (◯) 先手。";
+            setTimeout(() => callback(true), 1200);
+          } else if (aiFinal > pFinal) {
+            diceStatus.textContent = "AI贏了！AI持 (◯) 先手，你持 (✕) 後手。";
+            setTimeout(() => callback(false), 1200);
+          } else {
+            diceStatus.textContent = "平手！重新擲骰...";
+            setTimeout(() => rollDiceSequence(callback), 1000);
+          }
+        }
+      }, 100);
+    }
+
+    function resetGame(humanFirst) {
+      gameState.cells.fill(null);
+      gameState.macroBoard.fill(null);
+      gameState.fouls = { O: 0, X: 0 };
+      gameState.isGameOver = false;
+      gameState.history = [];
+      gameState.replayIndex = -1;
+      gameState.lastMoveGlobalIdx = null;
+      gameState.activeBoardIdx = null; // 重置全盤自由
+
+      gameState.humanSymbol = humanFirst ? 'O' : 'X';
+      gameState.aiSymbol = humanFirst ? 'X' : 'O';
+      gameState.currentPlayer = 'O';
+
+      document.getElementById('foul-player').textContent = `0 / 2`;
+      document.getElementById('foul-ai').textContent = `0 / 2`;
+      document.getElementById('replay-controls').classList.add('hidden');
+      updateAICommentary("對局展開！輪到先手落子。");
+
+      updateUI();
+      startTimer();
+
+      if (gameState.currentPlayer === gameState.aiSymbol) {
+        setTimeout(triggerAIMove, 600);
+      }
+    }
+
+    // --- 計時器 ---
+    function startTimer() {
+      clearInterval(gameState.timerInterval);
+      gameState.currentTimer = gameState.timerSec;
+      document.getElementById('timer-display').textContent = `${gameState.currentTimer}s`;
+
+      gameState.timerInterval = setInterval(() => {
+        if (gameState.isGameOver) return;
+        gameState.currentTimer--;
+        document.getElementById('timer-display').textContent = `${gameState.currentTimer}s`;
+
+        if (gameState.currentTimer <= 3 && gameState.currentTimer > 0) {
+          sounds.playWarningBeep();
+        }
+
+        if (gameState.currentTimer <= 0) {
+          handleTimeoutFoul();
+        }
+      }, 1000);
+    }
+
+    function handleTimeoutFoul() {
+      const cp = gameState.currentPlayer;
+      gameState.fouls[cp]++;
+      
+      const isHuman = (cp === gameState.humanSymbol);
+      const elemId = isHuman ? 'foul-player' : 'foul-ai';
+      document.getElementById(elemId).textContent = `${gameState.fouls[cp]} / 2`;
+
+      if (gameState.fouls[cp] >= 2) {
+        sounds.playRedCardAlarm();
+        clearInterval(gameState.timerInterval);
+        gameState.isGameOver = true;
+        const winner = (cp === 'O') ? 'X' : 'O';
+        alert(`🚨 玩家 ${cp} 逾時違規累積 2 次（紅牌）！判定違規敗。`);
+        endGame(winner, 'foul');
+      } else {
+        sounds.playWarningBeep();
+        alert(`⚠️ 玩家 ${cp} 思考逾時！黃牌 1 次。輪到對手。`);
+        switchTurn();
+      }
+    }
+
+    // --- 下棋邏輯與派牌判定 ---
+    function handleCellClick(b, c) {
+      if (gameState.isGameOver) return;
+      if (gameState.currentPlayer !== gameState.humanSymbol) return;
+
+      // 經典派牌模式檢查：若有指定分區，必須落在該分區
+      if (gameState.isClassicMode && gameState.activeBoardIdx !== null && gameState.activeBoardIdx !== b) {
+        return; 
+      }
+
+      const globalIdx = b * 9 + c;
+      if (gameState.cells[globalIdx] !== null) return;
+      if (gameState.macroBoard[b] !== null) return;
+
+      makeMove(b, c, gameState.humanSymbol);
+    }
+
+    function makeMove(b, c, symbol) {
+      sounds.playPlaceSound();
+      const globalIdx = b * 9 + c;
+      gameState.cells[globalIdx] = symbol;
+      gameState.lastMoveGlobalIdx = globalIdx;
+      gameState.history.push({ boardIdx: b, cellIdx: c, player: symbol });
+
+      // 計算經典派牌：下一個指定的小棋盤即為落子格子 c
+      if (gameState.isClassicMode) {
+        if (gameState.macroBoard[c] === null) {
+          gameState.activeBoardIdx = c; // 指定下一個小棋盤
+        } else {
+          gameState.activeBoardIdx = null; // 若該分區已被拿下，開放全盤自由落子
+        }
+      } else {
+        gameState.activeBoardIdx = null;
+      }
+
+      // 檢查小棋盤與大棋盤
+      const prevMacro = gameState.macroBoard[b];
+      checkSubBoardStatus(b);
+      if (prevMacro === null && gameState.macroBoard[b] !== null) {
+        sounds.playSubWinSound();
+      }
+
+      const macroWinner = checkWinner(gameState.macroBoard);
+      if (macroWinner) {
+        updateUI();
+        endGame(macroWinner, 'normal');
+        return;
+      }
+
+      if (gameState.cells.every(cell => cell !== null) || gameState.macroBoard.every(mb => mb !== null)) {
+        updateUI();
+        endGame('DRAW', 'normal');
+        return;
+      }
+
+      switchTurn();
+    }
+
+    function switchTurn() {
+      gameState.currentPlayer = gameState.currentPlayer === 'O' ? 'X' : 'O';
+      updateUI();
+      startTimer();
+
+      if (gameState.currentPlayer === gameState.aiSymbol && !gameState.isGameOver) {
+        setTimeout(triggerAIMove, 600);
+      }
+    }
+
+    function checkSubBoardStatus(b) {
+      const subCells = [];
+      for (let i = 0; i < 9; i++) subCells.push(gameState.cells[b * 9 + i]);
+      const winner = checkWinner(subCells);
+      if (winner) gameState.macroBoard[b] = winner;
+      else if (subCells.every(val => val !== null)) gameState.macroBoard[b] = 'DRAW';
+    }
+
+    function checkWinner(board) {
+      for (let combo of WINNING_COMBOS) {
+        const [a, b, c] = combo;
+        if (board[a] && board[a] === board[b] && board[a] === board[c] && board[a] !== 'DRAW') {
+          return board[a];
+        }
+      }
+      return null;
+    }
+
+    // --- AI 智商系統 (包含職業級 Minimax 啟發式演算) ---
+    function triggerAIMove() {
+      if (gameState.isGameOver) return;
+
+      let validMoves = getValidMoves();
+      if (validMoves.length === 0) return;
+
+      let chosenMove, aiComment;
+
+      if (gameState.difficulty === 'easy') {
+        ({ move: chosenMove, comment: aiComment } = getEasyAIMove(validMoves));
+      } else if (gameState.difficulty === 'medium') {
+        ({ move: chosenMove, comment: aiComment } = getMediumAIMove(validMoves));
+      } else if (gameState.difficulty === 'hard') {
+        ({ move: chosenMove, comment: aiComment } = getHardAIMove(validMoves));
+      } else {
+        // 最高級：職業級最佳解 (Pro Minimax)
+        ({ move: chosenMove, comment: aiComment } = getProAIMove(validMoves));
+      }
+
+      updateAICommentary(aiComment);
+      makeMove(chosenMove.b, chosenMove.c, gameState.aiSymbol);
+    }
+
+    function getValidMoves() {
+      let validMoves = [];
+      for (let b = 0; b < 9; b++) {
+        // 若在派牌模式且有指定分區，限制僅能選指定的 b
+        if (gameState.isClassicMode && gameState.activeBoardIdx !== null && gameState.activeBoardIdx !== b) {
+          continue;
+        }
+        if (gameState.macroBoard[b] === null) {
+          for (let c = 0; c < 9; c++) {
+            if (gameState.cells[b * 9 + c] === null) {
+              validMoves.push({ b, c });
+            }
+          }
+        }
+      }
+      return validMoves;
+    }
+
+    // 1. 初級 (小二)
+    function getEasyAIMove(validMoves) {
+      for (let move of validMoves) {
+        if (canWinSubBoard(move.b, move.c, gameState.humanSymbol)) {
+          return { move, comment: `「注意到你在第 ${move.b + 1} 區有連線機會，幫你封堵！」` };
+        }
+      }
+      const move = validMoves[Math.floor(Math.random() * validMoves.length)];
+      return { move, comment: `「隨機選擇落在第 ${move.b + 1} 區...」` };
+    }
+
+    // 2. 中級 (小四)
+    function getMediumAIMove(validMoves) {
+      for (let move of validMoves) {
+        if (canWinSubBoard(move.b, move.c, gameState.aiSymbol)) {
+          return { move, comment: `「第 ${move.b + 1} 區發現連線突破口！主動進攻！」` };
+        }
+      }
+      const centerMoves = validMoves.filter(m => m.c === 4);
+      if (centerMoves.length > 0) {
+        const move = centerMoves[Math.floor(Math.random() * centerMoves.length)];
+        return { move, comment: `「強勢搶佔第 ${move.b + 1} 區中心戰略要衝！」` };
+      }
+      const move = validMoves[Math.floor(Math.random() * validMoves.length)];
+      return { move, comment: `「推進陣勢，落子於第 ${move.b + 1} 區。」` };
+    }
+
+    // 3. 高級 (小六)
+    function getHardAIMove(validMoves) {
+      for (let move of validMoves) {
+        if (canWinSubBoard(move.b, move.c, gameState.aiSymbol)) {
+          const tempMacro = [...gameState.macroBoard];
+          tempMacro[move.b] = gameState.aiSymbol;
+          if (checkWinner(tempMacro) === gameState.aiSymbol) {
+            return { move, comment: `「攻防完成！第 ${move.b + 1} 區連線並奪取大棋盤勝利！」` };
+          }
+        }
+      }
+      for (let move of validMoves) {
+        if (canWinSubBoard(move.b, move.c, gameState.humanSymbol)) {
+          return { move, comment: `「精準封堵！於第 ${move.b + 1} 區化解連線危機。」` };
+        }
+      }
+      for (let move of validMoves) {
+        if (canWinSubBoard(move.b, move.c, gameState.aiSymbol)) {
+          return { move, comment: `「奪取第 ${move.b + 1} 區以擴大優勢。」` };
+        }
+      }
+      const move = validMoves[Math.floor(Math.random() * validMoves.length)];
+      return { move, comment: `「經全盤綜合評估，於第 ${move.b + 1} 區最佳佈局。」` };
+    }
+
+    // 4. 最高級 (國中 - 職業棋手 level Minimax 啟發式最佳解)
+    function getProAIMove(validMoves) {
+      let bestScore = -Infinity;
+      let bestMove = validMoves[0];
+
+      for (let move of validMoves) {
+        // 模擬落子
+        let score = evaluateMove(move);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = move;
+        }
+      }
+
+      return {
+        move: bestMove,
+        comment: `「【職業級評估】經最佳解計算：落子第 ${bestMove.b + 1} 區 (價值分: ${bestScore.toFixed(0)})。」`
+      };
+    }
+
+    // 啟發式評估函數
+    function evaluateMove(move) {
+      let score = 0;
+      const { b, c } = move;
+
+      // 1. 能直接贏下大棋盤：最高分
+      if (canWinSubBoard(b, c, gameState.aiSymbol)) {
+        const tempMacro = [...gameState.macroBoard];
+        tempMacro[b] = gameState.aiSymbol;
+        if (checkWinner(tempMacro) === gameState.aiSymbol) return 10000;
+        score += 100; // 贏下該小棋盤
+      }
+
+      // 2. 封堵對手的勝點
+      if (canWinSubBoard(b, c, gameState.humanSymbol)) {
+        score += 80;
+      }
+
+      // 3. 小棋盤戰略位置 (中心 c=4 給予高權重, 角位 c=0,2,6,8 次之)
+      if (c === 4) score += 15;
+      else if ([0,2,6,8].includes(c)) score += 8;
+
+      // 4. 大棋盤戰略位置 (中央小棋盤 b=4 給予更高權重)
+      if (b === 4) score += 20;
+
+      // 5. 派牌模式考量：避免將對手派往對手有利或中心小棋盤
+      if (gameState.isClassicMode) {
+        if (gameState.macroBoard[c] !== null) {
+          score += 10; // 送給對手自由落子權要謹慎，但若是鎖定區尚可接受
+        } else if (c === 4) {
+          score -= 15; // 盡量不要派對手去中央小棋盤
+        }
+      }
+
+      return score + Math.random() * 3; // 微小噪音避免死板
+    }
+
+    function canWinSubBoard(b, c, symbol) {
+      const tempCells = [];
+      for (let i = 0; i < 9; i++) tempCells.push(gameState.cells[b * 9 + i]);
+      tempCells[c] = symbol;
+      return checkWinner(tempCells) === symbol;
+    }
+
+    function updateAICommentary(text) {
+      document.getElementById('ai-commentary').textContent = text;
+    }
+
+    // --- UI 畫面渲染 ---
+    function updateUI() {
+      for (let b = 0; b < 9; b++) {
+        const subBoardElem = document.getElementById(`subboard-${b}`);
+        
+        // 限定目標分區閃爍提示 (經典派牌模式)
+        if (gameState.isClassicMode && gameState.activeBoardIdx !== null) {
+          if (b === gameState.activeBoardIdx) {
+            subBoardElem.classList.add('target-board');
+          } else {
+            subBoardElem.classList.remove('target-board');
+          }
+        } else {
+          subBoardElem.classList.remove('target-board');
+        }
+
+        for (let c = 0; c < 9; c++) {
+          const idx = b * 9 + c;
+          const cellElem = document.querySelector(`.cell[data-board-idx="${b}"][data-cell-idx="${c}"]`);
+          const val = gameState.cells[idx];
+          cellElem.textContent = val || '';
+          
+          let baseClass = `cell bg-white/70 rounded shadow-sm hover:bg-white `;
+          if (val) {
+            baseClass += `occupied font-black text-2xl ${val === 'O' ? 'text-indigo-600' : 'text-rose-600'} `;
+          }
+
+          if (idx === gameState.lastMoveGlobalIdx) {
+            baseClass += `last-move-highlight `;
+          }
+
+          cellElem.className = baseClass;
+        }
+
+        // 小棋盤 Overlay
+        const overlay = document.getElementById(`overlay-${b}`);
+        const macroVal = gameState.macroBoard[b];
+        if (macroVal) {
+          overlay.classList.remove('hidden');
+          overlay.textContent = macroVal === 'DRAW' ? '➖' : macroVal;
+          overlay.className = `sub-board-overlay ${macroVal === 'O' ? 'text-indigo-600' : macroVal === 'X' ? 'text-rose-600' : 'text-slate-400'}`;
+        } else {
+          overlay.classList.add('hidden');
+        }
+      }
+
+      // 當前資訊面板
+      const turnElem = document.getElementById('turn-display');
+      const targetElem = document.getElementById('target-board-display');
+
+      if (gameState.isGameOver) {
+        turnElem.textContent = '賽局結束';
+        targetElem.textContent = '無';
+      } else {
+        const isHumanTurn = gameState.currentPlayer === gameState.humanSymbol;
+        turnElem.textContent = `${gameState.currentPlayer} (${isHumanTurn ? '玩家回合' : 'AI思考中...'})`;
+
+        if (gameState.isClassicMode && gameState.activeBoardIdx !== null) {
+          targetElem.textContent = `限定第 ${gameState.activeBoardIdx + 1} 區`;
+        } else {
+          targetElem.textContent = '全盤自由';
+        }
+      }
+    }
+
+    // --- 完賽畫面與動畫特效 ---
+    function endGame(winner, reason) {
+      clearInterval(gameState.timerInterval);
+      gameState.isGameOver = true;
+
+      const isHumanWin = (winner === gameState.humanSymbol);
+
+      if (winner === 'DRAW') {
+        alert("🤝 雙方勢均力敵，最終和局！");
+      } else if (isHumanWin) {
+        // 人類獲勝：觸發慶祝煙火動畫
+        fireworks.start();
+        setTimeout(() => {
+          alert("🎉🎉 恭喜你獲得最終勝利！極致的棋力展現！");
+        }, 300);
+      } else {
+        // AI 獲勝：跳出 AI 讚賞評語 Modal
+        const randomQuote = AI_PRAISE_QUOTES[Math.floor(Math.random() * AI_PRAISE_QUOTES.length)];
+        document.getElementById('ai-quote-text').textContent = randomQuote;
+        toggleModal('ai-win-modal', true);
+      }
+
+      saveGameRecord(winner, reason);
+      document.getElementById('replay-controls').classList.remove('hidden');
+      gameState.replayIndex = gameState.history.length;
+      updateReplayUI();
+    }
+
+    function saveGameRecord(winner, reason) {
+      const records = JSON.parse(localStorage.getItem('utt_records') || '[]');
+      const newRecord = {
+        id: Date.now(),
+        date: new Date().toLocaleString(),
+        difficulty: gameState.difficulty,
+        humanSymbol: gameState.humanSymbol,
+        winner: winner,
+        reason: reason,
+        history: [...gameState.history]
+      };
+      records.unshift(newRecord);
+      localStorage.setItem('utt_records', JSON.stringify(records.slice(0, 20)));
+    }
+
+    // --- 復盤邏輯 ---
+    function stepReplay(dir) {
+      const targetIndex = gameState.replayIndex + dir;
+      if (targetIndex < 0 || targetIndex > gameState.history.length) return;
+
+      gameState.replayIndex = targetIndex;
+      gameState.cells.fill(null);
+      gameState.macroBoard.fill(null);
+      gameState.activeBoardIdx = null;
+
+      for (let i = 0; i < gameState.replayIndex; i++) {
+        const h = gameState.history[i];
+        gameState.cells[h.boardIdx * 9 + h.cellIdx] = h.player;
+        if (i === gameState.replayIndex - 1) {
+          gameState.lastMoveGlobalIdx = h.boardIdx * 9 + h.cellIdx;
+        }
+        checkSubBoardStatus(h.boardIdx);
+      }
+
+      if (gameState.replayIndex === 0) gameState.lastMoveGlobalIdx = null;
+
+      updateUI();
+      updateReplayUI();
+    }
+
+    function updateReplayUI() {
+      document.getElementById('replay-step').textContent = `步數：${gameState.replayIndex} / ${gameState.history.length}`;
+    }
+
+    // --- 數據統計與歷史紀錄 ---
+    function showLeaderboard() {
+      const records = JSON.parse(localStorage.getItem('utt_records') || '[]');
+      document.getElementById('data-modal-title').textContent = '🏆 戰績排行榜';
+
+      let stats = {
+        easy: { win: 0, loss: 0, draw: 0 },
+        medium: { win: 0, loss: 0, draw: 0 },
+        hard: { win: 0, loss: 0, draw: 0 },
+        pro: { win: 0, loss: 0, draw: 0 }
+      };
+
+      records.forEach(r => {
+        const diff = r.difficulty || 'easy';
+        if (r.winner === 'DRAW') stats[diff].draw++;
+        else if (r.winner === r.humanSymbol) stats[diff].win++;
+        else stats[diff].loss++;
+      });
+
+      let html = `
+        <div class="space-y-3">
+          ${renderRankCard('初級 (小二)', stats.easy)}
+          ${renderRankCard('中級 (小四)', stats.medium)}
+          ${renderRankCard('高級 (小六)', stats.hard)}
+          ${renderRankCard('最高級 (職業大師)', stats.pro)}
+        </div>
+      `;
+      document.getElementById('data-modal-content').innerHTML = html;
+      toggleModal('data-modal', true);
+    }
+
+    function renderRankCard(title, data) {
+      const total = data.win + data.loss + data.draw;
+      const winRate = total > 0 ? Math.round((data.win / total) * 100) : 0;
+      return `
+        <div class="bg-slate-700/50 p-3 rounded-xl flex justify-between items-center">
+          <div>
+            <div class="font-bold text-slate-200">${title}</div>
+            <div class="text-xs text-slate-400">總場次：${total} | 勝：${data.win} | 敗：${data.loss} | 和：${data.draw}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-lg font-bold text-indigo-400">${winRate}%</div>
+            <div class="text-xs text-slate-400">勝率</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function showHistoryGames() {
+      const records = JSON.parse(localStorage.getItem('utt_records') || '[]');
+      document.getElementById('data-modal-title').textContent = '📁 歷史賽局與復盤';
+
+      if (records.length === 0) {
+        document.getElementById('data-modal-content').innerHTML = `<p class="text-slate-400 text-center py-4">尚無歷史紀錄</p>`;
+      } else {
+        let html = records.map((r, idx) => `
+          <div class="bg-slate-700/50 p-3 rounded-xl flex justify-between items-center border border-slate-600/30">
+            <div>
+              <div class="font-bold text-slate-200">${r.date} (${(r.difficulty || 'easy').toUpperCase()})</div>
+              <div class="text-xs text-slate-400">結果：${r.winner === 'DRAW' ? '和局' : (r.winner === r.humanSymbol ? '玩家勝' : 'AI勝')} ${r.reason === 'foul' ? '(違規判決)' : ''} | 步數：${r.history.length}</div>
+            </div>
+            <button onclick="loadHistoryToReplay(${idx})" class="bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-lg text-white font-bold">載入復盤</button>
+          </div>
+        `).join('');
+        document.getElementById('data-modal-content').innerHTML = `<div class="space-y-2">${html}</div>`;
+      }
+
+      toggleModal('data-modal', true);
+    }
+
+    window.loadHistoryToReplay = function(recordIdx) {
+      const records = JSON.parse(localStorage.getItem('utt_records') || '[]');
+      const r = records[recordIdx];
+      if (!r) return;
+
+      gameState.history = r.history;
+      gameState.isGameOver = true;
+      gameState.replayIndex = r.history.length;
+      clearInterval(gameState.timerInterval);
+
+      toggleModal('data-modal', false);
+      document.getElementById('replay-controls').classList.remove('hidden');
+      stepReplay(0);
+    };
+  </script>
+</body>
+</html>

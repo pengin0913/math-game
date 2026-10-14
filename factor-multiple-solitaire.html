@@ -1,0 +1,2174 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>因倍數牌卡接龍 (Factor & Multiple Solitaire)</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+
+    :root {
+      --felt-green: #113620;
+      --felt-dark: #071a0e;
+    }
+
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      background: radial-gradient(circle at 50% 45%, var(--felt-green) 0%, var(--felt-dark) 100%);
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    .num-font {
+      font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+    }
+
+    .solitaire-card {
+      transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+      transform-origin: center center;
+    }
+
+    .solitaire-card:hover {
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+
+    .solitaire-card.selected {
+      transform: translateY(-8px) scale(1.06);
+      box-shadow: 0 0 0 3.5px #fef08a, 0 16px 30px rgba(0, 0, 0, 0.7);
+      z-index: 50;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% {
+        box-shadow: 0 0 14px rgba(74, 222, 128, 0.45);
+        border-color: rgba(74, 222, 128, 0.9);
+        background-color: rgba(74, 222, 128, 0.12);
+      }
+      50% {
+        box-shadow: 0 0 24px rgba(74, 222, 128, 0.85);
+        border-color: rgba(134, 239, 172, 1);
+        background-color: rgba(74, 222, 128, 0.28);
+      }
+    }
+
+    .valid-target {
+      animation: pulse-glow 1.4s infinite;
+      cursor: pointer !important;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 4px;
+    }
+
+    @keyframes shine {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .shine-effect::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
+      animation: shine 2.2s infinite;
+    }
+
+    @keyframes urgency-pulse {
+      0%, 100% { background-color: rgba(239, 68, 68, 0.2); }
+      50% { background-color: rgba(239, 68, 68, 0.55); }
+    }
+    .timer-danger {
+      animation: urgency-pulse 0.6s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-hidden text-slate-100 flex flex-col justify-between p-2 md:p-3">
+
+  <!-- ================= TOP BAR: 發牌塔、模式切換、設定、計時 ================= -->
+  <header class="flex items-center justify-between bg-black/50 backdrop-blur-md px-3 md:px-4 py-2 rounded-2xl border border-white/10 shadow-lg shrink-0 z-30 gap-2">
+    <!-- Left: Title & Mode Selector -->
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center font-black text-white shadow-inner">
+        <i data-lucide="layers" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="text-xs md:text-base font-black tracking-wide bg-gradient-to-r from-emerald-300 via-amber-200 to-emerald-400 bg-clip-text text-transparent flex items-center gap-1.5">
+          <span>因倍數牌卡接龍</span>
+          <span id="current-mode-tag" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold hidden sm:inline-block">AI對戰</span>
+        </h1>
+        <p class="text-[9px] md:text-[10px] text-emerald-200/70 hidden sm:block">相鄰數字需為因數或倍數，滿 7 張自動收攏</p>
+      </div>
+    </div>
+
+    <!-- Center: Draw Pile & Complete count -->
+    <div class="flex items-center space-x-2 md:space-x-3">
+      <!-- Draw Deck -->
+      <div class="flex items-center bg-emerald-950/80 px-2.5 py-1 rounded-xl border border-emerald-500/30 shadow">
+        <div class="relative w-6 h-9 md:w-7 md:h-10 mr-2 flex items-center justify-center">
+          <div class="absolute inset-0 bg-slate-800 rounded border border-slate-600 transform translate-x-0.5 translate-y-0.5"></div>
+          <div class="absolute inset-0 bg-blue-900 rounded border border-cyan-400 flex items-center justify-center">
+            <span class="text-[8px] font-bold text-cyan-200 font-mono">牌塔</span>
+          </div>
+        </div>
+        <div>
+          <div class="text-[9px] uppercase tracking-wider text-emerald-300/80 font-bold">發牌塔剩餘</div>
+          <div id="deck-count" class="text-sm md:text-base font-black num-font leading-tight text-white">40 張</div>
+        </div>
+      </div>
+
+      <!-- Completed count -->
+      <div class="flex items-center bg-amber-950/60 px-2.5 py-1 rounded-xl border border-amber-500/30">
+        <i data-lucide="check-circle-2" class="w-4 h-4 text-amber-400 mr-1.5"></i>
+        <div>
+          <div class="text-[9px] text-amber-200/80 font-bold">已收攏排數</div>
+          <div id="completed-count" class="text-sm md:text-base font-black text-amber-300 num-font leading-tight">0 / 4 排</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Mode Dropdown & Actions -->
+    <div class="flex items-center space-x-1.5 md:space-x-2">
+      <!-- Mode Tabs -->
+      <div class="flex items-center bg-black/60 rounded-xl p-1 border border-white/10 text-xs">
+        <button onclick="switchGameMode('ai')" id="tab-mode-ai" class="px-2 py-1 rounded-lg font-bold text-xs bg-emerald-600 text-white transition flex items-center gap-1" title="玩家 vs 電腦 AI">
+          <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+          <span class="hidden md:inline">AI對戰</span>
+        </button>
+        <button onclick="switchGameMode('solo')" id="tab-mode-solo" class="px-2 py-1 rounded-lg font-bold text-xs text-slate-300 hover:text-white transition flex items-center gap-1" title="單人計時挑戰">
+          <i data-lucide="timer" class="w-3.5 h-3.5"></i>
+          <span class="hidden md:inline">單人計時</span>
+        </button>
+        <button onclick="switchGameMode('multi')" id="tab-mode-multi" class="px-2 py-1 rounded-lg font-bold text-xs text-slate-300 hover:text-white transition flex items-center gap-1" title="多人同機輪流對戰">
+          <i data-lucide="users" class="w-3.5 h-3.5"></i>
+          <span class="hidden md:inline">多人對戰</span>
+        </button>
+      </div>
+
+      <!-- Export / Print PDF Button -->
+      <button onclick="openPrintModal()" title="列印紙本卡牌 (PDF / A4)" class="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-indigo-600/80 hover:bg-indigo-500 text-white font-bold text-xs transition border border-indigo-400/30 shadow">
+        <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+        <span class="hidden lg:inline">列印卡牌</span>
+      </button>
+
+      <!-- Pause / Resume -->
+      <button id="pause-toggle-btn" onclick="togglePauseGame()" title="暫停/繼續遊戲" class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-white/10 transition shadow">
+        <i id="pause-btn-icon" data-lucide="pause" class="w-4 h-4"></i>
+      </button>
+
+      <!-- Settings Button -->
+      <button onclick="openSettingsModal()" title="遊戲設定" class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-white/10 transition shadow">
+        <i data-lucide="settings" class="w-4 h-4"></i>
+      </button>
+
+      <!-- Log Button -->
+      <button onclick="toggleLogPanel()" title="對局紀錄" class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-white/10 transition shadow">
+        <i data-lucide="scroll-text" class="w-4 h-4"></i>
+      </button>
+
+      <!-- New Game Button -->
+      <button onclick="initGame()" title="重新開局" class="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-rose-600/80 hover:bg-rose-500 text-white font-bold text-xs transition border border-rose-400/30 shadow">
+        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline">新局</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= AI OPPONENT BAR ================= -->
+  <section id="ai-opponent-bar" class="w-full max-w-7xl mx-auto mt-1 px-3 py-1.5 rounded-2xl bg-slate-900/60 border border-cyan-500/20 backdrop-blur-md flex items-center justify-between text-xs transition-all duration-300">
+    <div class="flex items-center space-x-3">
+      <div class="relative">
+        <div id="ai-avatar-ring" class="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center border-2 border-cyan-400 shadow-lg text-white">
+          <i data-lucide="bot" class="w-5 h-5"></i>
+        </div>
+        <span id="ai-active-indicator" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 border-2 border-slate-900 rounded-full animate-ping"></span>
+      </div>
+      <div>
+        <div class="flex items-center gap-1.5 font-bold text-slate-200">
+          <span id="ai-name-label">AI 電腦對手</span>
+          <span id="ai-diff-tag" class="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-normal">中等難度</span>
+        </div>
+        <div id="ai-status-bubble" class="text-[10px] text-cyan-200 flex items-center gap-1 mt-0.5">
+          <i data-lucide="clock" class="w-3 h-3"></i>
+          <span id="ai-thinking-text">等待玩家出牌中...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Opponent Hand Backs & Discard Count -->
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-1.5" id="ai-cards-back-view">
+        <span class="text-[10px] text-slate-400 mr-1 hidden sm:inline">AI 手牌:</span>
+        <div class="w-6 h-9 rounded-md bg-gradient-to-b from-indigo-700 to-indigo-950 border border-indigo-400/50 shadow flex items-center justify-center text-[9px] text-indigo-200 font-mono">?</div>
+        <div class="w-6 h-9 rounded-md bg-gradient-to-b from-indigo-700 to-indigo-950 border border-indigo-400/50 shadow flex items-center justify-center text-[9px] text-indigo-200 font-mono">?</div>
+        <div class="w-6 h-9 rounded-md bg-gradient-to-b from-indigo-700 to-indigo-950 border border-indigo-400/50 shadow flex items-center justify-center text-[9px] text-indigo-200 font-mono">?</div>
+      </div>
+      
+      <div class="flex items-center gap-1 bg-black/40 px-2.5 py-1 rounded-xl border border-rose-500/30">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-400"></i>
+        <div class="text-[10px] text-slate-300 font-medium">AI 棄牌:</div>
+        <div id="ai-discard-count" class="text-xs font-black num-font text-rose-300">0</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MAIN BOARD: 4 COLUMNS CENTRAL PLAY AREA ================= -->
+  <main class="relative flex-1 flex flex-col justify-center items-center my-1 w-full max-w-7xl mx-auto overflow-hidden">
+    <!-- 4 Public Solitaire Columns Grid -->
+    <div id="board-columns" class="w-full h-full max-h-[54vh] md:max-h-[60vh] grid grid-cols-4 gap-2 md:gap-4 px-1 md:px-4 py-1">
+      <!-- Generated dynamically -->
+    </div>
+
+    <!-- Active Factor/Multiple Prompt Hint Tooltip -->
+    <div id="match-hint-banner" class="pointer-events-none absolute bottom-1 bg-black/85 backdrop-blur-md px-4 py-1.5 rounded-full border border-emerald-400/50 text-xs font-medium text-emerald-300 opacity-0 transition-opacity duration-200 shadow-2xl flex items-center space-x-2 z-40">
+      <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-300 animate-spin"></i>
+      <span id="match-hint-text">點選或拖曳手牌，系統將高亮合法因倍數接龍位置</span>
+    </div>
+  </main>
+
+  <!-- ================= ACTIVE COUNTDOWN PROGRESS BAR ================= -->
+  <div id="timer-progress-wrap" class="w-full max-w-7xl mx-auto px-1 shrink-0 mb-1">
+    <div class="flex items-center justify-between text-[11px] mb-1 px-2">
+      <div class="flex items-center space-x-1.5 font-bold">
+        <i data-lucide="hourglass" class="w-3.5 h-3.5 text-amber-300"></i>
+        <span id="timer-label-who" class="text-amber-200">當前回合思考反應倒數</span>
+      </div>
+      <div class="flex items-center space-x-1 font-mono font-black text-xs">
+        <span id="timer-countdown-sec" class="text-white bg-black/50 px-2 py-0.5 rounded-md border border-white/10">10.0s</span>
+      </div>
+    </div>
+    <div class="w-full h-2 rounded-full bg-black/50 border border-white/10 overflow-hidden relative shadow-inner">
+      <div id="timer-progress-bar" class="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 rounded-full transition-all duration-100 w-full"></div>
+    </div>
+  </div>
+
+  <!-- ================= BOTTOM PANEL: PLAYERS, HAND CARDS & DISCARD ================= -->
+  <footer class="bg-black/55 backdrop-blur-md rounded-2xl border border-white/10 p-2 md:p-3 shrink-0 shadow-2xl z-30 flex flex-col gap-2">
+    <!-- Header: Players List / Quick Discard -->
+    <div class="flex items-center justify-between border-b border-white/10 pb-1.5">
+      <div id="players-tab-bar" class="flex items-center space-x-2 overflow-x-auto">
+        <!-- Rendered player tab items -->
+      </div>
+
+      <!-- Quick Action Buttons for Active Player -->
+      <div class="flex items-center space-x-2">
+        <span class="text-[11px] text-amber-300 font-medium hidden md:inline">
+          <i data-lucide="alert-circle" class="w-3 h-3 inline mr-1"></i>無處可接時請選牌並棄置
+        </span>
+        <button id="quick-discard-btn" onclick="discardSelectedCard()" disabled class="px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-500 hover:text-black flex items-center space-x-1">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>棄置此牌</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Hand Cards & Personal Discard Pile -->
+    <div class="flex items-center justify-between gap-3 min-h-[90px] md:min-h-[110px]">
+      <!-- Left: Active Player Info -->
+      <div class="hidden sm:flex flex-col justify-center w-28 md:w-36 text-xs text-slate-300 bg-white/5 p-2 rounded-xl border border-white/5">
+        <div class="font-bold text-white flex items-center">
+          <span id="turn-badge" class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block mr-1.5 animate-ping"></span>
+          <span id="current-player-name">玩家 (你)</span>
+        </div>
+        <p id="player-sub-status" class="text-[10px] text-emerald-300 mt-0.5">輪到你的回合！</p>
+      </div>
+
+      <!-- Center: Current Active Player's Hand -->
+      <div class="flex-1 flex items-center justify-center">
+        <div id="player-hand-container" class="flex items-center justify-center space-x-3 md:space-x-5">
+          <!-- Rendered Hand Cards -->
+        </div>
+      </div>
+
+      <!-- Right: Active Player's Personal Discard Pile -->
+      <div id="active-discard-zone" class="w-28 md:w-36 flex items-center justify-between p-2 rounded-xl bg-rose-950/40 border border-rose-500/30 transition hover:bg-rose-900/40 relative cursor-pointer group" title="可將選取手牌拖入或按棄牌按鈕移入此處">
+        <div class="flex flex-col">
+          <span class="text-[10px] text-rose-300 font-bold uppercase">個人棄牌區</span>
+          <span id="active-discard-count" class="text-base md:text-lg font-black text-rose-400 num-font leading-none">0 張</span>
+        </div>
+        <div class="w-8 h-10 md:w-9 md:h-12 rounded-lg bg-black/40 border border-rose-400/40 flex items-center justify-center text-rose-400 group-hover:scale-105 transition">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ================= SETTINGS MODAL ================= -->
+  <div id="settings-modal" class="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center z-50 p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+    <div class="bg-slate-900 border border-white/10 rounded-3xl p-5 md:p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl text-slate-200 transform scale-95 transition-transform duration-200">
+      <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
+        <div class="flex items-center space-x-2 font-bold text-base text-white">
+          <i data-lucide="sliders" class="w-5 h-5 text-emerald-400"></i>
+          <span>遊戲對局與計時設定</span>
+        </div>
+        <button onclick="closeSettingsModal()" class="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4 text-xs">
+        <!-- Deck Package Selection -->
+        <div class="p-3 bg-white/5 rounded-2xl border border-indigo-500/30">
+          <label class="block font-bold text-indigo-300 mb-2 flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="layers" class="w-4 h-4"></i>
+              <span>使用的 40 張發牌塔組合</span>
+            </span>
+            <span id="deck-stars-label" class="text-amber-400 text-xs font-mono">★★★☆☆</span>
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="selectDeckPackage('standard')" id="btn-deck-standard" class="p-2.5 rounded-xl border border-indigo-400 bg-indigo-600/40 text-left transition hover:bg-indigo-600/60">
+              <div class="font-black text-white text-xs">經典標準版 (預設)</div>
+              <div class="text-[10px] text-indigo-200/80">照片原版 · 難度 ★★★☆☆</div>
+            </button>
+            <button onclick="selectDeckPackage('beginner')" id="btn-deck-beginner" class="p-2.5 rounded-xl border border-white/10 bg-black/30 text-left transition hover:bg-indigo-600/40">
+              <div class="font-black text-white text-xs">入門基礎版</div>
+              <div class="text-[10px] text-slate-300/80">九九乘法以內 · 難度 ★☆☆☆☆</div>
+            </button>
+            <button onclick="selectDeckPackage('advanced')" id="btn-deck-advanced" class="p-2.5 rounded-xl border border-white/10 bg-black/30 text-left transition hover:bg-indigo-600/40">
+              <div class="font-black text-white text-xs">進階挑戰版</div>
+              <div class="text-[10px] text-slate-300/80">二位數多因數 · 難度 ★★★★☆</div>
+            </button>
+            <button onclick="selectDeckPackage('master')" id="btn-deck-master" class="p-2.5 rounded-xl border border-white/10 bg-black/30 text-left transition hover:bg-indigo-600/40">
+              <div class="font-black text-white text-xs">專家競速版</div>
+              <div class="text-[10px] text-slate-300/80">大數與質因數 · 難度 ★★★★★</div>
+            </button>
+          </div>
+          <p id="deck-desc-hint" class="text-[10px] text-slate-400 mt-2 bg-black/30 p-2 rounded-lg">
+            <strong>經典標準版</strong>：精選原圖 4 色各 10 張牌，考驗基礎與進階二位數因倍數連鎖關係。
+          </p>
+        </div>
+
+        <!-- AI Setting Section -->
+        <div class="p-3 bg-white/5 rounded-2xl border border-cyan-500/30">
+          <label class="block font-bold text-cyan-300 mb-2 flex items-center gap-1.5">
+            <i data-lucide="cpu" class="w-4 h-4"></i>
+            <span>AI 電腦對手難度</span>
+          </label>
+          <div class="grid grid-cols-3 gap-2">
+            <button onclick="setAiDifficulty('easy')" id="diff-easy" class="py-1.5 rounded-xl border border-white/10 text-center font-bold">簡單 (休閒)</button>
+            <button onclick="setAiDifficulty('medium')" id="diff-medium" class="py-1.5 rounded-xl border bg-cyan-600 border-cyan-400 text-white font-bold">中等 (推薦)</button>
+            <button onclick="setAiDifficulty('hard')" id="diff-hard" class="py-1.5 rounded-xl border border-white/10 text-center font-bold">困難 (算計)</button>
+          </div>
+        </div>
+
+        <!-- Timer Setting Slider -->
+        <div class="p-3 bg-white/5 rounded-2xl border border-white/10">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-bold text-amber-300 flex items-center gap-1.5">
+              <i data-lucide="timer" class="w-4 h-4"></i>
+              <span>每回合思考反應時間</span>
+            </span>
+            <span id="setting-timer-val" class="font-mono font-black text-sm text-white px-2 py-0.5 bg-black/40 rounded-lg">10 秒</span>
+          </div>
+          <input type="range" id="timer-slider" min="3" max="30" step="1" value="10" oninput="onTimerSliderChange(this.value)" class="w-full accent-emerald-500 cursor-pointer">
+          <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+            <span>3秒 (極速)</span>
+            <span>10秒 (標準)</span>
+            <span>30秒 (深思)</span>
+          </div>
+        </div>
+
+        <!-- Rules & Hints -->
+        <div class="p-3 bg-white/5 rounded-2xl border border-white/10 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-bold text-white">數學因倍數運算提示</div>
+              <div class="text-[10px] text-slate-400">接龍插槽顯示詳細因倍數關係說明</div>
+            </div>
+            <input type="checkbox" id="setting-show-math-hint" checked onchange="toggleMathHintSetting(this.checked)" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+          </div>
+
+          <div class="flex items-center justify-between border-t border-white/5 pt-2">
+            <div>
+              <div class="font-bold text-white">音效開關</div>
+              <div class="text-[10px] text-slate-400">出牌、收攏、倒數警報音效反饋</div>
+            </div>
+            <input type="checkbox" id="setting-sound-enabled" checked onchange="toggleSoundSetting(this.checked)" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex gap-2">
+        <button onclick="applySettingsAndRestart()" class="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wider transition">
+          套用設定並開局
+        </button>
+        <button onclick="closeSettingsModal()" class="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs transition">
+          關閉
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PRINT / PDF EXPORT MODAL ================= -->
+  <div id="print-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-3 opacity-0 pointer-events-none transition-opacity duration-200">
+    <div class="bg-slate-900 border border-white/10 rounded-3xl p-5 max-w-4xl w-full max-h-[95vh] flex flex-col shadow-2xl text-slate-200 transform scale-95 transition-transform duration-200">
+      <div class="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+        <div class="flex items-center space-x-2 font-bold text-base text-white">
+          <i data-lucide="printer" class="w-5 h-5 text-indigo-400"></i>
+          <span>紙本卡牌 A4 輸出與列印中心 (PDF)</span>
+        </div>
+        <button onclick="closePrintModal()" class="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="py-3 flex flex-wrap items-center justify-between gap-3 border-b border-white/5 text-xs shrink-0">
+        <div class="flex items-center space-x-2">
+          <span class="text-slate-400 font-bold">選擇匯出牌組：</span>
+          <select id="print-deck-select" onchange="renderPrintPreview()" class="bg-black/50 border border-white/20 rounded-xl px-3 py-1.5 text-white font-bold text-xs focus:ring-2 focus:ring-indigo-500">
+            <option value="standard">牌庫1：標準經典版 (照片版 · ★★★☆☆)</option>
+            <option value="beginner">牌庫2：入門基礎版 (九九乘法 · ★☆☆☆☆)</option>
+            <option value="advanced">牌庫3：進階挑戰版 (二位數倍數 · ★★★★☆)</option>
+            <option value="master">牌庫4：專家競速版 (大質因數 · ★★★★★)</option>
+            <option value="all">全部 4 套牌庫 (共 160 張)</option>
+          </select>
+        </div>
+
+        <div class="flex items-center space-x-3">
+          <label class="flex items-center space-x-1.5 cursor-pointer">
+            <input type="checkbox" id="print-include-backs" checked onchange="renderPrintPreview()" class="w-4 h-4 accent-indigo-500 rounded">
+            <span>包含卡背頁</span>
+          </label>
+          <label class="flex items-center space-x-1.5 cursor-pointer">
+            <input type="checkbox" id="print-include-cover" checked onchange="renderPrintPreview()" class="w-4 h-4 accent-indigo-500 rounded">
+            <span>包含說明封面</span>
+          </label>
+        </div>
+      </div>
+
+      <div id="print-preview-container" class="flex-1 overflow-y-auto custom-scrollbar my-3 bg-slate-950 p-4 rounded-2xl border border-white/5 space-y-6">
+        <!-- Rendered A4 Pages -->
+      </div>
+
+      <div class="flex items-center justify-between pt-3 border-t border-white/10 shrink-0">
+        <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
+          <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
+          <span>列印建議：請在列印對話框中選擇「無邊界」並勾選「背景圖形」。</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="closePrintModal()" class="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs">
+            取消
+          </button>
+          <button onclick="triggerPrintPdf()" class="px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black text-xs flex items-center space-x-1.5 shadow-lg shadow-indigo-900/50">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span>立即開啟 A4 列印 / 另存為 PDF</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= GAME OVER MODAL ================= -->
+  <div id="game-over-modal" class="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+    <div class="bg-slate-900 border border-white/15 rounded-3xl p-6 max-w-md w-full shadow-2xl text-center transform scale-95 transition-transform duration-300">
+      <div id="settle-badge-icon" class="w-16 h-16 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center mx-auto mb-3 shadow-inner">
+        <i data-lucide="award" class="w-9 h-9 text-amber-400"></i>
+      </div>
+      <h2 id="settle-title" class="text-xl font-black text-white mb-1">對局結算</h2>
+      <p id="settle-subtitle" class="text-xs text-slate-300 mb-4">發牌塔已抽完，依個人棄牌數多寡排名：</p>
+
+      <div id="leaderboard-list" class="space-y-2 mb-5">
+        <!-- Injected dynamically -->
+      </div>
+
+      <div class="flex gap-2">
+        <button onclick="restartGame()" class="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs tracking-wider transition shadow-lg shadow-emerald-900/40">
+          再來一局！
+        </button>
+        <button onclick="closeGameOverModal()" class="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs transition">
+          關閉
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= ACTION LOG DRAWER ================= -->
+  <aside id="log-modal" class="fixed top-0 right-0 h-full w-80 max-w-[85vw] bg-slate-900/95 backdrop-blur-md border-l border-white/10 p-4 z-50 transform translate-x-full transition-transform duration-300 flex flex-col shadow-2xl">
+    <div class="flex items-center justify-between pb-3 border-b border-white/10">
+      <div class="flex items-center space-x-2 font-bold text-sm text-white">
+        <i data-lucide="scroll-text" class="w-4 h-4 text-emerald-400"></i>
+        <span>即時對局與出牌紀錄</span>
+      </div>
+      <button onclick="toggleLogPanel()" class="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <div id="action-log-list" class="flex-1 overflow-y-auto custom-scrollbar my-3 space-y-2 text-xs">
+      <!-- Injected logs -->
+    </div>
+    <button onclick="clearActionLog()" class="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 font-bold text-xs transition border border-white/5">
+      清空紀錄
+    </button>
+  </aside>
+
+  <!-- Drag Avatar Representation -->
+  <div id="drag-avatar" class="pointer-events-none fixed z-50 hidden opacity-90 transform -translate-x-1/2 -translate-y-1/2 scale-105"></div>
+
+  <script>
+    /* =========================================================================
+       Web Audio API 輕量音效合成器 (免外部音效網址，零破圖零斷線)
+       ========================================================================= */
+    const SoundEffects = {
+      ctx: null,
+      enabled: true,
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+      },
+      play(type) {
+        if (!this.enabled) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          if (this.ctx.state === 'suspended') this.ctx.resume();
+
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          if (type === 'playCard') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(320, now);
+            osc.frequency.exponentialRampToValueAtTime(540, now + 0.12);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+            osc.start(now);
+            osc.stop(now + 0.12);
+          } else if (type === 'discard') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(260, now);
+            osc.frequency.linearRampToValueAtTime(140, now + 0.15);
+            gain.gain.setValueAtTime(0.25, now);
+            gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now);
+            osc.stop(now + 0.15);
+          } else if (type === 'collapse') {
+            [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+              const o = this.ctx.createOscillator();
+              const g = this.ctx.createGain();
+              o.connect(g);
+              g.connect(this.ctx.destination);
+              o.type = 'sine';
+              o.frequency.setValueAtTime(freq, now + idx * 0.08);
+              g.gain.setValueAtTime(0.2, now + idx * 0.08);
+              g.gain.linearRampToValueAtTime(0.01, now + idx * 0.08 + 0.25);
+              o.start(now + idx * 0.08);
+              o.stop(now + idx * 0.08 + 0.25);
+            });
+          } else if (type === 'warning') {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(880, now);
+            gain.gain.setValueAtTime(0.08, now);
+            gain.gain.linearRampToValueAtTime(0.005, now + 0.06);
+            osc.start(now);
+            osc.stop(now + 0.06);
+          }
+        } catch (e) {
+          // Audio blocked until user interaction
+        }
+      }
+    };
+
+    const COLOR_THEMES = {
+      blue: { bg: 'bg-blue-600', border: 'border-blue-400', text: 'text-white', sub: 'border-blue-300/40' },
+      yellow: { bg: 'bg-amber-400', border: 'border-amber-300', text: 'text-slate-900', sub: 'border-amber-600/30' },
+      pink: { bg: 'bg-rose-400', border: 'border-rose-300', text: 'text-slate-950', sub: 'border-rose-600/30' },
+      cyan: { bg: 'bg-cyan-500', border: 'border-cyan-300', text: 'text-slate-950', sub: 'border-cyan-700/30' }
+    };
+
+    /* 牌庫1【經典標準版 - Standard】: 原圖 40 張牌精準還原 (難度 ★★★☆☆) */
+    const BLUE_CARDS = [
+      { id: 'b1', color: 'blue', top: 4, bottom: 20 },
+      { id: 'b2', color: 'blue', top: 5, bottom: 18 },
+      { id: 'b3', color: 'blue', top: 6, bottom: 27 },
+      { id: 'b4', color: 'blue', top: 9, bottom: 30 },
+      { id: 'b5', color: 'blue', top: 15, bottom: 7 },
+      { id: 'b6', color: 'blue', top: 28, bottom: 1 },
+      { id: 'b7', color: 'blue', top: 2, bottom: 16 },
+      { id: 'b8', color: 'blue', top: 4, bottom: 11 },
+      { id: 'b9', color: 'blue', top: 22, bottom: 8 },
+      { id: 'b10', color: 'blue', top: 32, bottom: 4 }
+    ];
+
+    const YELLOW_CARDS = [
+      { id: 'y1', color: 'yellow', top: 5, bottom: 32 },
+      { id: 'y2', color: 'yellow', top: 64, bottom: 7 },
+      { id: 'y3', color: 'yellow', top: 35, bottom: 9 },
+      { id: 'y4', color: 'yellow', top: 27, bottom: 24 },
+      { id: 'y5', color: 'yellow', top: 12, bottom: 15 },
+      { id: 'y6', color: 'yellow', top: 60, bottom: 19 },
+      { id: 'y7', color: 'yellow', top: 38, bottom: 50 },
+      { id: 'y8', color: 'yellow', top: 10, bottom: 39 },
+      { id: 'y9', color: 'yellow', top: 13, bottom: 34 },
+      { id: 'y10', color: 'yellow', top: 17, bottom: 33 }
+    ];
+
+    const PINK_CARDS = [
+      { id: 'p1', color: 'pink', top: 19, bottom: 25 },
+      { id: 'p2', color: 'pink', top: 50, bottom: 6 },
+      { id: 'p3', color: 'pink', top: 18, bottom: 7 },
+      { id: 'p4', color: 'pink', top: 42, bottom: 20 },
+      { id: 'p5', color: 'pink', top: 40, bottom: 3 },
+      { id: 'p6', color: 'pink', top: 1, bottom: 49 },
+      { id: 'p7', color: 'pink', top: 7, bottom: 31 },
+      { id: 'p8', color: 'pink', top: 62, bottom: 22 },
+      { id: 'p9', color: 'pink', top: 11, bottom: 45 },
+      { id: 'p10', color: 'pink', top: 15, bottom: 5 }
+    ];
+
+    const CYAN_CARDS = [
+      { id: 'c1', color: 'cyan', top: 12, bottom: 8 },
+      { id: 'c2', color: 'cyan', top: 40, bottom: 7 },
+      { id: 'c3', color: 'cyan', top: 56, bottom: 34 },
+      { id: 'c4', color: 'cyan', top: 17, bottom: 1 },
+      { id: 'c5', color: 'cyan', top: 9, bottom: 38 },
+      { id: 'c6', color: 'cyan', top: 19, bottom: 48 },
+      { id: 'c7', color: 'cyan', top: 24, bottom: 6 },
+      { id: 'c8', color: 'cyan', top: 48, bottom: 13 },
+      { id: 'c9', color: 'cyan', top: 52, bottom: 5 },
+      { id: 'c10', color: 'cyan', top: 50, bottom: 3 }
+    ];
+
+    const DECK_STANDARD = [...BLUE_CARDS, ...YELLOW_CARDS, ...PINK_CARDS, ...CYAN_CARDS];
+
+    /* 牌庫2【入門基礎版 - Beginner】: 九九乘法與 2/3/5/6 友好連鎖 (難度 ★☆☆☆☆) */
+    const BEGINNER_BLUE = [
+      { id: 'bg_b1', color: 'blue', top: 2, bottom: 12 },
+      { id: 'bg_b2', color: 'blue', top: 4, bottom: 20 },
+      { id: 'bg_b3', color: 'blue', top: 5, bottom: 15 },
+      { id: 'bg_b4', color: 'blue', top: 3, bottom: 18 },
+      { id: 'bg_b5', color: 'blue', top: 6, bottom: 24 },
+      { id: 'bg_b6', color: 'blue', top: 8, bottom: 16 },
+      { id: 'bg_b7', color: 'blue', top: 4, bottom: 28 },
+      { id: 'bg_b8', color: 'blue', top: 7, bottom: 21 },
+      { id: 'bg_b9', color: 'blue', top: 3, bottom: 30 },
+      { id: 'bg_b10', color: 'blue', top: 10, bottom: 5 }
+    ];
+    const BEGINNER_YELLOW = [
+      { id: 'bg_y1', color: 'yellow', top: 3, bottom: 27 },
+      { id: 'bg_y2', color: 'yellow', top: 9, bottom: 36 },
+      { id: 'bg_y3', color: 'yellow', top: 6, bottom: 42 },
+      { id: 'bg_y4', color: 'yellow', top: 7, bottom: 35 },
+      { id: 'bg_y5', color: 'yellow', top: 5, bottom: 40 },
+      { id: 'bg_y6', color: 'yellow', top: 8, bottom: 32 },
+      { id: 'bg_y7', color: 'yellow', top: 4, bottom: 12 },
+      { id: 'bg_y8', color: 'yellow', top: 2, bottom: 14 },
+      { id: 'bg_y9', color: 'yellow', top: 7, bottom: 49 },
+      { id: 'bg_y10', color: 'yellow', top: 1, bottom: 9 }
+    ];
+    const BEGINNER_PINK = [
+      { id: 'bg_p1', color: 'pink', top: 4, bottom: 16 },
+      { id: 'bg_p2', color: 'pink', top: 2, bottom: 18 },
+      { id: 'bg_p3', color: 'pink', top: 9, bottom: 45 },
+      { id: 'bg_p4', color: 'pink', top: 5, bottom: 25 },
+      { id: 'bg_p5', color: 'pink', top: 1, bottom: 12 },
+      { id: 'bg_p6', color: 'pink', top: 6, bottom: 30 },
+      { id: 'bg_p7', color: 'pink', top: 10, bottom: 50 },
+      { id: 'bg_p8', color: 'pink', top: 25, bottom: 5 },
+      { id: 'bg_p9', color: 'pink', top: 15, bottom: 3 },
+      { id: 'bg_p10', color: 'pink', top: 9, bottom: 3 }
+    ];
+    const BEGINNER_CYAN = [
+      { id: 'bg_c1', color: 'cyan', top: 5, bottom: 20 },
+      { id: 'bg_c2', color: 'cyan', top: 10, bottom: 40 },
+      { id: 'bg_c3', color: 'cyan', top: 8, bottom: 48 },
+      { id: 'bg_c4', color: 'cyan', top: 6, bottom: 18 },
+      { id: 'bg_c5', color: 'cyan', top: 2, bottom: 10 },
+      { id: 'bg_c6', color: 'cyan', top: 5, bottom: 35 },
+      { id: 'bg_c7', color: 'cyan', top: 7, bottom: 28 },
+      { id: 'bg_c8', color: 'cyan', top: 14, bottom: 2 },
+      { id: 'bg_c9', color: 'cyan', top: 8, bottom: 24 },
+      { id: 'bg_c10', color: 'cyan', top: 12, bottom: 4 }
+    ];
+    const DECK_BEGINNER = [...BEGINNER_BLUE, ...BEGINNER_YELLOW, ...BEGINNER_PINK, ...BEGINNER_CYAN];
+
+    /* 牌庫3【進階挑戰版 - Advanced】: 10~100 二位數多倍數連鎖 (難度 ★★★★☆) */
+    const ADVANCED_BLUE = [
+      { id: 'ad_b1', color: 'blue', top: 12, bottom: 48 },
+      { id: 'ad_b2', color: 'blue', top: 16, bottom: 64 },
+      { id: 'ad_b3', color: 'blue', top: 8, bottom: 72 },
+      { id: 'ad_b4', color: 'blue', top: 18, bottom: 54 },
+      { id: 'ad_b5', color: 'blue', top: 27, bottom: 81 },
+      { id: 'ad_b6', color: 'blue', top: 9, bottom: 63 },
+      { id: 'ad_b7', color: 'blue', top: 21, bottom: 84 },
+      { id: 'ad_b8', color: 'blue', top: 14, bottom: 56 },
+      { id: 'ad_b9', color: 'blue', top: 28, bottom: 56 },
+      { id: 'ad_b10', color: 'blue', top: 7, bottom: 42 }
+    ];
+    const ADVANCED_YELLOW = [
+      { id: 'ad_y1', color: 'yellow', top: 6, bottom: 96 },
+      { id: 'ad_y2', color: 'yellow', top: 24, bottom: 72 },
+      { id: 'ad_y3', color: 'yellow', top: 36, bottom: 18 },
+      { id: 'ad_y4', color: 'yellow', top: 54, bottom: 6 },
+      { id: 'ad_y5', color: 'yellow', top: 30, bottom: 90 },
+      { id: 'ad_y6', color: 'yellow', top: 15, bottom: 75 },
+      { id: 'ad_y7', color: 'yellow', top: 25, bottom: 100 },
+      { id: 'ad_y8', color: 'yellow', top: 20, bottom: 80 },
+      { id: 'ad_y9', color: 'yellow', top: 16, bottom: 48 },
+      { id: 'ad_y10', color: 'yellow', top: 24, bottom: 12 }
+    ];
+    const ADVANCED_PINK = [
+      { id: 'ad_p1', color: 'pink', top: 14, bottom: 98 },
+      { id: 'ad_p2', color: 'pink', top: 49, bottom: 7 },
+      { id: 'ad_p3', color: 'pink', top: 21, bottom: 63 },
+      { id: 'ad_p4', color: 'pink', top: 9, bottom: 99 },
+      { id: 'ad_p5', color: 'pink', top: 33, bottom: 66 },
+      { id: 'ad_p6', color: 'pink', top: 22, bottom: 88 },
+      { id: 'ad_p7', color: 'pink', top: 44, bottom: 11 },
+      { id: 'ad_p8', color: 'pink', top: 55, bottom: 5 },
+      { id: 'ad_p9', color: 'pink', top: 35, bottom: 70 },
+      { id: 'ad_p10', color: 'pink', top: 10, bottom: 60 }
+    ];
+    const ADVANCED_CYAN = [
+      { id: 'ad_c1', color: 'cyan', top: 13, bottom: 52 },
+      { id: 'ad_c2', color: 'cyan', top: 26, bottom: 78 },
+      { id: 'ad_c3', color: 'cyan', top: 39, bottom: 3 },
+      { id: 'ad_c4', color: 'cyan', top: 18, bottom: 90 },
+      { id: 'ad_c5', color: 'cyan', top: 45, bottom: 15 },
+      { id: 'ad_c6', color: 'cyan', top: 60, bottom: 12 },
+      { id: 'ad_c7', color: 'cyan', top: 36, bottom: 4 },
+      { id: 'ad_c8', color: 'cyan', top: 28, bottom: 84 },
+      { id: 'ad_c9', color: 'cyan', top: 42, bottom: 14 },
+      { id: 'ad_c10', color: 'cyan', top: 70, bottom: 35 }
+    ];
+    const DECK_ADVANCED = [...ADVANCED_BLUE, ...ADVANCED_YELLOW, ...ADVANCED_PINK, ...ADVANCED_CYAN];
+
+    /* 牌庫4【專家競速版 - Master】: 50~200 大數與大質因數 (難度 ★★★★★) */
+    const MASTER_BLUE = [
+      { id: 'ms_b1', color: 'blue', top: 17, bottom: 102 },
+      { id: 'ms_b2', color: 'blue', top: 51, bottom: 153 },
+      { id: 'ms_b3', color: 'blue', top: 17, bottom: 119 },
+      { id: 'ms_b4', color: 'blue', top: 7, bottom: 161 },
+      { id: 'ms_b5', color: 'blue', top: 23, bottom: 115 },
+      { id: 'ms_b6', color: 'blue', top: 5, bottom: 185 },
+      { id: 'ms_b7', color: 'blue', top: 37, bottom: 111 },
+      { id: 'ms_b8', color: 'blue', top: 3, bottom: 141 },
+      { id: 'ms_b9', color: 'blue', top: 47, bottom: 94 },
+      { id: 'ms_b10', color: 'blue', top: 2, bottom: 134 }
+    ];
+    const MASTER_YELLOW = [
+      { id: 'ms_y1', color: 'yellow', top: 19, bottom: 114 },
+      { id: 'ms_y2', color: 'yellow', top: 38, bottom: 190 },
+      { id: 'ms_y3', color: 'yellow', top: 10, bottom: 170 },
+      { id: 'ms_y4', color: 'yellow', top: 17, bottom: 136 },
+      { id: 'ms_y5', color: 'yellow', top: 8, bottom: 168 },
+      { id: 'ms_y6', color: 'yellow', top: 24, bottom: 144 },
+      { id: 'ms_y7', color: 'yellow', top: 12, bottom: 180 },
+      { id: 'ms_y8', color: 'yellow', top: 15, bottom: 195 },
+      { id: 'ms_y9', color: 'yellow', top: 13, bottom: 143 },
+      { id: 'ms_y10', color: 'yellow', top: 11, bottom: 187 }
+    ];
+    const MASTER_PINK = [
+      { id: 'ms_p1', color: 'pink', top: 29, bottom: 145 },
+      { id: 'ms_p2', color: 'pink', top: 5, bottom: 155 },
+      { id: 'ms_p3', color: 'pink', top: 31, bottom: 124 },
+      { id: 'ms_p4', color: 'pink', top: 4, bottom: 172 },
+      { id: 'ms_p5', color: 'pink', top: 43, bottom: 129 },
+      { id: 'ms_p6', color: 'pink', top: 3, bottom: 177 },
+      { id: 'ms_p7', color: 'pink', top: 59, bottom: 118 },
+      { id: 'ms_p8', color: 'pink', top: 2, bottom: 158 },
+      { id: 'ms_p9', color: 'pink', top: 79, bottom: 158 },
+      { id: 'ms_p10', color: 'pink', top: 1, bottom: 197 }
+    ];
+    const MASTER_CYAN = [
+      { id: 'ms_c1', color: 'cyan', top: 23, bottom: 138 },
+      { id: 'ms_c2', color: 'cyan', top: 46, bottom: 184 },
+      { id: 'ms_c3', color: 'cyan', top: 8, bottom: 152 },
+      { id: 'ms_c4', color: 'cyan', top: 19, bottom: 133 },
+      { id: 'ms_c5', color: 'cyan', top: 7, bottom: 175 },
+      { id: 'ms_c6', color: 'cyan', top: 25, bottom: 150 },
+      { id: 'ms_c7', color: 'cyan', top: 6, bottom: 198 },
+      { id: 'ms_c8', color: 'cyan', top: 33, bottom: 165 },
+      { id: 'ms_c9', color: 'cyan', top: 11, bottom: 176 },
+      { id: 'ms_c10', color: 'cyan', top: 16, bottom: 160 }
+    ];
+    const DECK_MASTER = [...MASTER_BLUE, ...MASTER_YELLOW, ...MASTER_PINK, ...MASTER_CYAN];
+
+    const DECK_PACKAGES = {
+      standard: {
+        name: '經典標準版',
+        badge: '照片原版',
+        stars: '★★★☆☆',
+        desc: '精選原圖 4 色各 10 張牌，數字涵蓋常見九九乘法與兩位數因倍數關係。',
+        cards: DECK_STANDARD
+      },
+      beginner: {
+        name: '入門基礎版',
+        badge: '九九乘法',
+        stars: '★☆☆☆☆',
+        desc: '著重於 1~50 以內基礎九九乘法與 2/3/5 的倍數，接口因數多，輕鬆連鎖。',
+        cards: DECK_BEGINNER
+      },
+      advanced: {
+        name: '進階挑戰版',
+        badge: '二位數倍數',
+        stars: '★★★★☆',
+        desc: '數字涵蓋 10~100 二位數倍數 (如 12、16、24、36、48、72、84、96 等)，心算要求高。',
+        cards: DECK_ADVANCED
+      },
+      master: {
+        name: '專家競速版',
+        badge: '大數與質因數',
+        stars: '★★★★★',
+        desc: '數字涵蓋 100~200，包含 13、17、19、23、29、31 等特定質因數倍數，深思極限。',
+        cards: DECK_MASTER
+      }
+    };
+
+    const gameConfig = {
+      mode: 'ai',               // 'ai' | 'solo' | 'multi'
+      selectedDeck: 'standard', // 'standard' | 'beginner' | 'advanced' | 'master'
+      turnTimeLimit: 10,        // 預設 10 秒
+      aiDifficulty: 'medium',   // 'easy' | 'medium' | 'hard'
+      showMathHints: true,
+      soundEnabled: true
+    };
+
+    const gameState = {
+      drawPile: [],
+      columns: [[], [], [], []],
+      completedCols: [false, false, false, false],
+      players: [],
+      activePlayerIndex: 0,
+      selectedCardId: null,
+      actionLogs: [],
+      isDragging: false,
+      isPaused: false,
+      gameOver: false,
+      timerRemaining: 10,
+      timerInterval: null,
+      isAiThinking: false,
+      stats: {
+        timeoutDiscards: 0,
+        movesPlayed: 0
+      }
+    };
+
+    /* 數學因倍數檢驗 */
+    function checkFactorOrMultiple(numA, numB) {
+      if (!numA || !numB || numA <= 0 || numB <= 0) return false;
+      return (numA % numB === 0) || (numB % numA === 0);
+    }
+
+    function getRelationDescription(placedNum, targetNum) {
+      if (placedNum === targetNum) return `${placedNum} 與 ${targetNum} 相等 (1倍)`;
+      if (placedNum % targetNum === 0) {
+        return `${placedNum} 是 ${targetNum} 的 ${placedNum / targetNum} 倍`;
+      }
+      if (targetNum % placedNum === 0) {
+        return `${placedNum} 是 ${targetNum} 的因數 (${targetNum} ÷ ${placedNum} = ${targetNum / placedNum})`;
+      }
+      return '';
+    }
+
+    function shuffle(array) {
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function logAction(actor, message) {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const item = { time: timeStr, actor, message };
+      gameState.actionLogs.unshift(item);
+
+      const list = document.getElementById('action-log-list');
+      if (list) {
+        const row = document.createElement('div');
+        row.className = "bg-white/5 p-2 rounded-xl border border-white/5";
+        row.innerHTML = `
+          <div class="flex items-center justify-between text-[10px] text-slate-400 mb-0.5">
+            <span class="font-bold text-emerald-300">${actor}</span>
+            <span class="font-mono">${timeStr}</span>
+          </div>
+          <div class="text-[11px] text-slate-200 leading-snug">${message}</div>
+        `;
+        list.prepend(row);
+      }
+    }
+
+    function initGame() {
+      stopTurnTimer();
+      const currentDeckCards = DECK_PACKAGES[gameConfig.selectedDeck]?.cards || DECK_STANDARD;
+      gameState.drawPile = shuffle(currentDeckCards);
+      gameState.columns = [[], [], [], []];
+      gameState.completedCols = [false, false, false, false];
+      gameState.activePlayerIndex = 0;
+      gameState.selectedCardId = null;
+      gameState.gameOver = false;
+      gameState.isPaused = false;
+      gameState.isAiThinking = false;
+      gameState.stats.timeoutDiscards = 0;
+      gameState.stats.movesPlayed = 0;
+      gameState.actionLogs = [];
+
+      const list = document.getElementById('action-log-list');
+      if (list) list.innerHTML = '';
+
+      // 建立玩家名單
+      gameState.players = [];
+      if (gameConfig.mode === 'ai') {
+        gameState.players.push({ id: 0, name: '玩家 (你)', isAi: false, hand: [], discardPile: [] });
+        gameState.players.push({ id: 1, name: 'AI 電腦對手', isAi: true, hand: [], discardPile: [] });
+      } else if (gameConfig.mode === 'solo') {
+        gameState.players.push({ id: 0, name: '單人挑戰者', isAi: false, hand: [], discardPile: [] });
+      } else {
+        for (let i = 0; i < 2; i++) {
+          gameState.players.push({ id: i, name: `玩家 ${i + 1}`, isAi: false, hand: [], discardPile: [] });
+        }
+      }
+
+      // 發牌塔分發給各玩家 3 張手牌
+      for (let p = 0; p < gameState.players.length; p++) {
+        for (let h = 0; h < 3; h++) {
+          if (gameState.drawPile.length > 0) {
+            gameState.players[p].hand.push(gameState.drawPile.pop());
+          }
+        }
+      }
+
+      // 公共接龍取 4 張牌起手
+      for (let c = 0; c < 4; c++) {
+        if (gameState.drawPile.length > 0) {
+          gameState.columns[c].push(gameState.drawPile.pop());
+        }
+      }
+
+      updateModeHeaderUI();
+      const deckInfo = DECK_PACKAGES[gameConfig.selectedDeck];
+      logAction('系統開局', `開局成功！模式：${getModeDisplayName()}，牌組：${deckInfo.name} (${deckInfo.stars})，限時：${gameConfig.turnTimeLimit} 秒`);
+
+      renderAll();
+      closeGameOverModal();
+      startTurnTimer();
+    }
+
+    function switchGameMode(mode) {
+      if (gameConfig.mode === mode) return;
+      gameConfig.mode = mode;
+      
+      ['ai', 'solo', 'multi'].forEach(m => {
+        const btn = document.getElementById(`tab-mode-${m}`);
+        if (btn) {
+          if (m === mode) {
+            btn.className = "px-2 py-1 rounded-lg font-bold text-xs bg-emerald-600 text-white transition flex items-center gap-1";
+          } else {
+            btn.className = "px-2 py-1 rounded-lg font-bold text-xs text-slate-300 hover:text-white transition flex items-center gap-1";
+          }
+        }
+      });
+
+      initGame();
+    }
+
+    function getModeDisplayName() {
+      if (gameConfig.mode === 'ai') return '玩家 vs 電腦 AI';
+      if (gameConfig.mode === 'solo') return '單人計時挑戰';
+      return '多人同機對戰';
+    }
+
+    function updateModeHeaderUI() {
+      const modeTag = document.getElementById('current-mode-tag');
+      const aiBar = document.getElementById('ai-opponent-bar');
+
+      if (gameConfig.mode === 'ai') {
+        if (modeTag) modeTag.textContent = 'AI對戰模式';
+        if (aiBar) aiBar.classList.remove('hidden');
+      } else if (gameConfig.mode === 'solo') {
+        if (modeTag) modeTag.textContent = '單人計時挑戰';
+        if (aiBar) aiBar.classList.add('hidden');
+      } else {
+        if (modeTag) modeTag.textContent = '多人輪流對戰';
+        if (aiBar) aiBar.classList.add('hidden');
+      }
+    }
+
+    function startTurnTimer() {
+      stopTurnTimer();
+      gameState.timerRemaining = gameConfig.turnTimeLimit;
+      updateTimerUI();
+
+      if (gameState.gameOver || gameState.isPaused) return;
+
+      const activePlayer = gameState.players[gameState.activePlayerIndex];
+
+      if (activePlayer && activePlayer.isAi) {
+        scheduleAiAction();
+      }
+
+      gameState.timerInterval = setInterval(() => {
+        if (gameState.isPaused || gameState.gameOver) return;
+
+        gameState.timerRemaining = Math.max(0, (gameState.timerRemaining - 0.1));
+        updateTimerUI();
+
+        if (gameState.timerRemaining > 0 && gameState.timerRemaining <= 3 && Math.floor(gameState.timerRemaining * 10) % 10 === 0) {
+          SoundEffects.play('warning');
+        }
+
+        if (gameState.timerRemaining <= 0) {
+          handleTurnTimeout();
+        }
+      }, 100);
+    }
+
+    function stopTurnTimer() {
+      if (gameState.timerInterval) {
+        clearInterval(gameState.timerInterval);
+        gameState.timerInterval = null;
+      }
+    }
+
+    function handleTurnTimeout() {
+      stopTurnTimer();
+      const activePlayer = gameState.players[gameState.activePlayerIndex];
+      if (!activePlayer || activePlayer.hand.length === 0) return;
+
+      gameState.stats.timeoutDiscards++;
+      logAction('⏰ 超時警報', `${activePlayer.name} 反應時間超過 ${gameConfig.turnTimeLimit} 秒，觸發系統強制棄牌！`);
+
+      const discardTarget = activePlayer.hand[0];
+      discardCard(discardTarget.id, true);
+    }
+
+    function updateTimerUI() {
+      const bar = document.getElementById('timer-progress-bar');
+      const wrap = document.getElementById('timer-progress-wrap');
+      const text = document.getElementById('timer-countdown-sec');
+      const label = document.getElementById('timer-label-who');
+
+      const activePlayer = gameState.players[gameState.activePlayerIndex];
+      if (activePlayer && label) {
+        label.textContent = `${activePlayer.name} 思考倒數:`;
+      }
+
+      if (text) text.textContent = `${gameState.timerRemaining.toFixed(1)}s`;
+
+      if (bar) {
+        const ratio = Math.max(0, Math.min(1, gameState.timerRemaining / gameConfig.turnTimeLimit));
+        bar.style.width = `${ratio * 100}%`;
+
+        if (ratio < 0.25) {
+          bar.className = "h-full bg-rose-500 rounded-full transition-all duration-100";
+          if (wrap) wrap.classList.add('timer-danger');
+        } else if (ratio < 0.5) {
+          bar.className = "h-full bg-amber-400 rounded-full transition-all duration-100";
+          if (wrap) wrap.classList.remove('timer-danger');
+        } else {
+          bar.className = "h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 rounded-full transition-all duration-100";
+          if (wrap) wrap.classList.remove('timer-danger');
+        }
+      }
+    }
+
+    function togglePauseGame() {
+      gameState.isPaused = !gameState.isPaused;
+      const icon = document.getElementById('pause-btn-icon');
+      if (gameState.isPaused) {
+        if (icon) icon.setAttribute('data-lucide', 'play');
+        logAction('遊戲暫停', '計時已暫停');
+      } else {
+        if (icon) icon.setAttribute('data-lucide', 'pause');
+        logAction('遊戲繼續', '計時恢復運作');
+      }
+      lucide.createIcons();
+    }
+
+    function scheduleAiAction() {
+      gameState.isAiThinking = true;
+      updateAiIndicatorUI(true);
+
+      const baseDelay = gameConfig.aiDifficulty === 'hard' ? 1200 : 1800;
+      const thinkTime = baseDelay + Math.random() * 800;
+
+      setTimeout(() => {
+        if (gameState.gameOver || gameState.isPaused) {
+          gameState.isAiThinking = false;
+          return;
+        }
+
+        const activePlayer = gameState.players[gameState.activePlayerIndex];
+        if (!activePlayer || !activePlayer.isAi) {
+          gameState.isAiThinking = false;
+          return;
+        }
+
+        makeAiMove(activePlayer);
+        gameState.isAiThinking = false;
+        updateAiIndicatorUI(false);
+      }, thinkTime);
+    }
+
+    function makeAiMove(aiPlayer) {
+      if (aiPlayer.hand.length === 0) return;
+
+      const validMoves = [];
+      aiPlayer.hand.forEach(card => {
+        for (let colIdx = 0; colIdx < 4; colIdx++) {
+          if (canPlaceCard(card, colIdx, 'TOP')) {
+            validMoves.push({ card, colIdx, pos: 'TOP' });
+          }
+          if (canPlaceCard(card, colIdx, 'BOTTOM')) {
+            validMoves.push({ card, colIdx, pos: 'BOTTOM' });
+          }
+        }
+      });
+
+      if (validMoves.length > 0) {
+        let chosenMove = null;
+
+        if (gameConfig.aiDifficulty === 'easy') {
+          chosenMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+        } else if (gameConfig.aiDifficulty === 'medium') {
+          validMoves.sort((a, b) => gameState.columns[b.colIdx].length - gameState.columns[a.colIdx].length);
+          chosenMove = validMoves[0];
+        } else {
+          validMoves.forEach(m => {
+            let score = 0;
+            const currentLen = gameState.columns[m.colIdx].length;
+            if (currentLen + 1 === 7) score += 100;
+            score += currentLen * 10;
+            m._score = score;
+          });
+          validMoves.sort((a, b) => b._score - a._score);
+          chosenMove = validMoves[0];
+        }
+
+        playCardToColumn(chosenMove.card.id, chosenMove.colIdx, chosenMove.pos);
+      } else {
+        const cardToDiscard = aiPlayer.hand[0];
+        discardCard(cardToDiscard.id, false);
+      }
+    }
+
+    function updateAiIndicatorUI(isThinking) {
+      const bubble = document.getElementById('ai-thinking-text');
+      const ping = document.getElementById('ai-active-indicator');
+      const ring = document.getElementById('ai-avatar-ring');
+
+      if (!bubble || !ping || !ring) return;
+
+      if (isThinking) {
+        bubble.textContent = 'AI 正在分析因倍數關係中 🤖...';
+        bubble.className = "text-[10px] text-amber-300 font-bold flex items-center gap-1 animate-pulse";
+        ping.classList.remove('hidden');
+        ring.className = "w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center border-2 border-amber-300 shadow-lg text-white scale-105 transition";
+      } else {
+        bubble.textContent = '等待玩家出牌中...';
+        bubble.className = "text-[10px] text-cyan-200 flex items-center gap-1";
+        ping.classList.add('hidden');
+        ring.className = "w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center border-2 border-cyan-400 shadow-lg text-white transition";
+      }
+    }
+
+    function canPlaceCard(card, colIndex, position) {
+      if (gameState.completedCols[colIndex]) return false;
+      const col = gameState.columns[colIndex];
+      if (col.length === 0) return true;
+
+      if (position === 'TOP') {
+        const targetCard = col[0];
+        return checkFactorOrMultiple(card.bottom, targetCard.top);
+      } else if (position === 'BOTTOM') {
+        const targetCard = col[col.length - 1];
+        return checkFactorOrMultiple(card.top, targetCard.bottom);
+      }
+      return false;
+    }
+
+    function getPlacementDescription(card, colIndex, position) {
+      const col = gameState.columns[colIndex];
+      if (!col || col.length === 0) return '可開創新接龍';
+
+      if (position === 'TOP') {
+        const targetCard = col[0];
+        return getRelationDescription(card.bottom, targetCard.top);
+      } else {
+        const targetCard = col[col.length - 1];
+        return getRelationDescription(card.top, targetCard.bottom);
+      }
+    }
+
+    function playCardToColumn(cardId, colIndex, position) {
+      const activePlayer = gameState.players[gameState.activePlayerIndex];
+      const cardIndex = activePlayer.hand.findIndex(c => c.id === cardId);
+      if (cardIndex === -1) return false;
+
+      const card = activePlayer.hand[cardIndex];
+      if (!canPlaceCard(card, colIndex, position)) return false;
+
+      activePlayer.hand.splice(cardIndex, 1);
+      const col = gameState.columns[colIndex];
+      let relationMsg = "";
+
+      if (position === 'TOP') {
+        relationMsg = getPlacementDescription(card, colIndex, 'TOP');
+        col.unshift(card);
+      } else {
+        relationMsg = getPlacementDescription(card, colIndex, 'BOTTOM');
+        col.push(card);
+      }
+
+      gameState.stats.movesPlayed++;
+      SoundEffects.play('playCard');
+
+      const colName = `第 ${colIndex + 1} 排`;
+      const posName = position === 'TOP' ? '頂端 ↑' : '底端 ↓';
+      logAction(activePlayer.name, `將 [${card.top} | ${card.bottom}] 接於 ${colName}${posName} (${relationMsg})`);
+
+      checkColumnCompletion(colIndex);
+      postActionStep(activePlayer);
+      return true;
+    }
+
+    function checkColumnCompletion(colIndex) {
+      const col = gameState.columns[colIndex];
+      if (col.length >= 7 && !gameState.completedCols[colIndex]) {
+        gameState.completedCols[colIndex] = true;
+        SoundEffects.play('collapse');
+        logAction('🎉 達成收攏', `第 ${colIndex + 1} 排累積滿 7 張因倍數接龍！已完整收攏成疊！`);
+      }
+    }
+
+    function discardCard(cardId, isAutoTimeout = false) {
+      const activePlayer = gameState.players[gameState.activePlayerIndex];
+      const cardIndex = activePlayer.hand.findIndex(c => c.id === cardId);
+      if (cardIndex === -1) return false;
+
+      const card = activePlayer.hand.splice(cardIndex, 1)[0];
+      activePlayer.discardPile.push(card);
+
+      SoundEffects.play('discard');
+      const cause = isAutoTimeout ? '【超時自動棄牌】' : '【主動棄牌】';
+      logAction(activePlayer.name, `${cause} 將 [${card.top} | ${card.bottom}] 移入個人棄牌區 (累計棄牌: ${activePlayer.discardPile.length}張)`);
+
+      postActionStep(activePlayer);
+      return true;
+    }
+
+    function discardSelectedCard() {
+      if (!gameState.selectedCardId) return;
+      discardCard(gameState.selectedCardId, false);
+      gameState.selectedCardId = null;
+    }
+
+    function postActionStep(player) {
+      if (gameState.drawPile.length > 0) {
+        player.hand.push(gameState.drawPile.pop());
+      }
+
+      gameState.selectedCardId = null;
+
+      if (checkGameOverCondition()) {
+        triggerGameOver();
+        return;
+      }
+
+      gameState.activePlayerIndex = (gameState.activePlayerIndex + 1) % gameState.players.length;
+      renderAll();
+      startTurnTimer();
+    }
+
+    function checkGameOverCondition() {
+      const deckEmpty = gameState.drawPile.length === 0;
+      const allHandsEmpty = gameState.players.every(p => p.hand.length === 0);
+      const allColsDone = gameState.completedCols.every(c => c === true);
+      return (deckEmpty && allHandsEmpty) || allColsDone;
+    }
+
+    function triggerGameOver() {
+      stopTurnTimer();
+      gameState.gameOver = true;
+      renderAll();
+
+      SoundEffects.play('collapse');
+
+      const sorted = [...gameState.players].sort((a, b) => a.discardPile.length - b.discardPile.length);
+      const isAiMode = gameConfig.mode === 'ai';
+
+      const titleEl = document.getElementById('settle-title');
+      const subtitleEl = document.getElementById('settle-subtitle');
+      const badgeIcon = document.getElementById('settle-badge-icon');
+
+      if (isAiMode) {
+        const playerObj = gameState.players[0];
+        const aiObj = gameState.players[1];
+        if (playerObj.discardPile.length < aiObj.discardPile.length) {
+          titleEl.textContent = '🎉 恭喜獲勝！你擊敗了 AI 電腦！';
+          subtitleEl.textContent = `你的棄牌只有 ${playerObj.discardPile.length} 張，低於 AI 的 ${aiObj.discardPile.length} 張！`;
+          badgeIcon.innerHTML = `<i data-lucide="crown" class="w-9 h-9 text-amber-400"></i>`;
+        } else if (playerObj.discardPile.length > aiObj.discardPile.length) {
+          titleEl.textContent = '🤖 AI 電腦獲勝！再接再厲！';
+          subtitleEl.textContent = `AI 棄牌為 ${aiObj.discardPile.length} 張，勝過你的 ${playerObj.discardPile.length} 張。`;
+          badgeIcon.innerHTML = `<i data-lucide="bot" class="w-9 h-9 text-cyan-400"></i>`;
+        } else {
+          titleEl.textContent = '🤝 雙方握手言和！平手！';
+          subtitleEl.textContent = `雙方棄牌皆為 ${playerObj.discardPile.length} 張。`;
+          badgeIcon.innerHTML = `<i data-lucide="award" class="w-9 h-9 text-yellow-300"></i>`;
+        }
+      } else {
+        titleEl.textContent = '遊戲結束！結算成績';
+        subtitleEl.textContent = '牌塔發完且手牌結清，棄牌最少者奪冠！';
+      }
+
+      const listContainer = document.getElementById('leaderboard-list');
+      if (listContainer) {
+        listContainer.innerHTML = '';
+        sorted.forEach((p, idx) => {
+          const isWinner = idx === 0;
+          const row = document.createElement('div');
+          row.className = `flex items-center justify-between p-3 rounded-2xl border ${isWinner ? 'bg-amber-500/20 border-amber-400 text-amber-200' : 'bg-white/5 border-white/10 text-slate-300'}`;
+          row.innerHTML = `
+            <div class="flex items-center space-x-3">
+              <span class="w-7 h-7 rounded-full flex items-center justify-center font-black text-xs ${isWinner ? 'bg-amber-400 text-slate-950 font-black' : 'bg-slate-700 text-white'}">
+                ${idx + 1}
+              </span>
+              <div>
+                <div class="font-bold text-sm flex items-center gap-1.5">
+                  <span>${p.name}</span>
+                  ${p.isAi ? '<span class="text-[9px] px-1 bg-cyan-500/30 text-cyan-300 rounded">AI</span>' : ''}
+                  ${isWinner ? '<span class="text-xs text-amber-300">👑 獲勝</span>' : ''}
+                </div>
+                <div class="text-[10px] opacity-75">剩餘手牌: ${p.hand.length} 張</div>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-xs text-rose-300 font-bold">個人棄牌數</div>
+              <div class="text-xl font-black num-font text-rose-400">${p.discardPile.length} <span class="text-xs font-normal">張</span></div>
+            </div>
+          `;
+          listContainer.appendChild(row);
+        });
+      }
+
+      const modal = document.getElementById('game-over-modal');
+      if (modal) {
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+        const dialog = modal.querySelector('div');
+        if (dialog) {
+          dialog.classList.remove('scale-95');
+          dialog.classList.add('scale-100');
+        }
+      }
+      lucide.createIcons();
+    }
+
+    function closeGameOverModal() {
+      const modal = document.getElementById('game-over-modal');
+      if (modal) modal.classList.add('opacity-0', 'pointer-events-none');
+    }
+
+    function restartGame() {
+      closeGameOverModal();
+      initGame();
+    }
+
+    function renderAll() {
+      renderHeaderInfo();
+      renderBoardColumns();
+      renderPlayersTabs();
+      renderActiveHand();
+      renderActiveDiscardPile();
+      renderAiStatusBar();
+      updateHintBanner();
+      lucide.createIcons();
+    }
+
+    function renderHeaderInfo() {
+      const deckCountEl = document.getElementById('deck-count');
+      if (deckCountEl) deckCountEl.textContent = `${gameState.drawPile.length} 張`;
+      
+      const compCountEl = document.getElementById('completed-count');
+      const completed = gameState.completedCols.filter(Boolean).length;
+      if (compCountEl) compCountEl.textContent = `${completed} / 4 排`;
+
+      const activePlayer = gameState.players[gameState.activePlayerIndex];
+      const isPlayerTurn = activePlayer && !activePlayer.isAi;
+      const btn = document.getElementById('quick-discard-btn');
+      if (btn) btn.disabled = !gameState.selectedCardId || !isPlayerTurn;
+    }
+
+    function renderAiStatusBar() {
+      if (gameConfig.mode !== 'ai') return;
+      const aiPlayer = gameState.players[1];
+      if (!aiPlayer) return;
+
+      const aiDiscardEl = document.getElementById('ai-discard-count');
+      if (aiDiscardEl) aiDiscardEl.textContent = `${aiPlayer.discardPile.length} 張`;
+
+      const cardsBackView = document.getElementById('ai-cards-back-view');
+      if (cardsBackView) {
+        cardsBackView.innerHTML = `<span class="text-[10px] text-slate-400 mr-1 hidden sm:inline">AI 手牌 (${aiPlayer.hand.length}):</span>`;
+        for (let i = 0; i < aiPlayer.hand.length; i++) {
+          const miniCard = document.createElement('div');
+          miniCard.className = "w-5 h-8 md:w-6 md:h-9 rounded-md bg-gradient-to-b from-indigo-700 to-indigo-950 border border-indigo-400/50 shadow flex items-center justify-center text-[9px] text-indigo-200 font-mono";
+          miniCard.textContent = '?';
+          cardsBackView.appendChild(miniCard);
+        }
+      }
+    }
+
+    function renderPlayersTabs() {
+      const container = document.getElementById('players-tab-bar');
+      if (!container) return;
+      container.innerHTML = '';
+
+      gameState.players.forEach((p, idx) => {
+        const isActive = idx === gameState.activePlayerIndex;
+        const badge = document.createElement('div');
+        badge.className = `flex items-center space-x-1.5 px-2.5 py-1 rounded-xl border transition ${
+          isActive 
+            ? 'bg-emerald-600/30 border-emerald-400 text-white shadow-md' 
+            : 'bg-black/30 border-white/5 text-slate-400'
+        }`;
+        badge.innerHTML = `
+          <div class="w-2 h-2 rounded-full ${isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}"></div>
+          <span class="text-xs font-bold">${p.name}</span>
+          <span class="text-[9px] px-1.5 py-0.2 rounded bg-white/10 text-slate-300 font-mono">牌:${p.hand.length}</span>
+          <span class="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 font-mono">棄:${p.discardPile.length}</span>
+        `;
+        container.appendChild(badge);
+      });
+
+      const curPlayer = gameState.players[gameState.activePlayerIndex];
+      const curPlayerNameEl = document.getElementById('current-player-name');
+      const sub = document.getElementById('player-sub-status');
+      if (curPlayer) {
+        if (curPlayerNameEl) curPlayerNameEl.textContent = curPlayer.name;
+        if (sub) {
+          if (curPlayer.isAi) {
+            sub.textContent = 'AI 電腦思考出牌中...';
+            sub.className = 'text-[10px] text-amber-300 mt-0.5 animate-pulse';
+          } else {
+            sub.textContent = '輪到你的回合！請接龍或棄牌';
+            sub.className = 'text-[10px] text-emerald-300 mt-0.5';
+          }
+        }
+      }
+    }
+
+    function createCardElement(card, isSmall = false) {
+      const theme = COLOR_THEMES[card.color] || COLOR_THEMES.blue;
+      const el = document.createElement('div');
+      
+      const sizeClasses = isSmall 
+        ? 'w-16 h-24 md:w-20 md:h-28 text-sm' 
+        : 'w-20 h-28 md:w-24 md:h-32 text-base';
+
+      el.className = `solitaire-card relative ${sizeClasses} rounded-xl shadow-lg border-2 ${theme.bg} ${theme.border} flex flex-col items-center justify-between p-1.5 select-none`;
+      el.dataset.cardId = card.id;
+
+      const renderNum = (n) => (n === 6 || n === 9) ? `<span class="underline decoration-2 underline-offset-2">${n}</span>` : n;
+
+      el.innerHTML = `
+        <div class="w-full flex items-center justify-center font-black num-font text-xl md:text-2xl leading-none ${theme.text} drop-shadow-sm">
+          ${renderNum(card.top)}
+        </div>
+        <div class="w-10/12 border-b-2 ${theme.sub} my-0.5"></div>
+        <div class="w-full flex items-center justify-center font-black num-font text-xl md:text-2xl leading-none ${theme.text} drop-shadow-sm">
+          ${renderNum(card.bottom)}
+        </div>
+      `;
+
+      return el;
+    }
+
+    function renderBoardColumns() {
+      const container = document.getElementById('board-columns');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const selectedCard = getSelectedCard();
+      const activePlayer = gameState.players[gameState.activePlayerIndex];
+      const isPlayerTurn = activePlayer && !activePlayer.isAi;
+
+      for (let c = 0; c < 4; c++) {
+        const colCards = gameState.columns[c];
+        const isCompleted = gameState.completedCols[c];
+
+        const colCol = document.createElement('div');
+        colCol.className = `flex flex-col h-full bg-black/30 rounded-2xl border border-white/5 p-1.5 relative overflow-hidden`;
+
+        // Column Header
+        const colHeader = document.createElement('div');
+        colHeader.className = "flex items-center justify-between px-2 py-1 mb-1 text-[11px] font-bold text-slate-300";
+        colHeader.innerHTML = `
+          <span>排 ${c + 1}</span>
+          <span class="text-[10px] px-1.5 py-0.2 rounded-md ${isCompleted ? 'bg-amber-400 text-black font-black' : 'bg-white/10 text-slate-400'}">
+            ${isCompleted ? '已收攏 (滿7張)' : `${colCards.length} 張`}
+          </span>
+        `;
+        colCol.appendChild(colHeader);
+
+        if (isCompleted) {
+          const completedStack = document.createElement('div');
+          completedStack.className = "flex-1 flex flex-col items-center justify-center relative";
+          completedStack.innerHTML = `
+            <div class="relative w-24 h-32 rounded-2xl bg-gradient-to-br from-amber-300 via-amber-500 to-amber-600 border-2 border-amber-200 shadow-2xl flex flex-col items-center justify-center text-slate-950 p-2 overflow-hidden shine-effect">
+              <i data-lucide="check-circle" class="w-8 h-8 text-slate-950 mb-1"></i>
+              <div class="font-black text-xs">已完成收攏</div>
+              <div class="text-[9px] font-bold opacity-80">7張因倍接龍</div>
+            </div>
+          `;
+          colCol.appendChild(completedStack);
+          container.appendChild(colCol);
+          continue;
+        }
+
+        // TOP DROP SLOT
+        const canDropTop = (isPlayerTurn && selectedCard) ? canPlaceCard(selectedCard, c, 'TOP') : false;
+        const topSlot = document.createElement('div');
+        topSlot.className = `w-full h-10 md:h-11 rounded-xl border-2 border-dashed flex items-center justify-center text-xs font-bold transition duration-150 mb-1 ${
+          canDropTop 
+            ? 'valid-target text-emerald-300 border-emerald-400' 
+            : 'border-white/10 text-slate-600'
+        }`;
+        topSlot.dataset.col = c;
+        topSlot.dataset.position = 'TOP';
+
+        if (canDropTop) {
+          const desc = gameConfig.showMathHints ? `(${getPlacementDescription(selectedCard, c, 'TOP')})` : '';
+          topSlot.innerHTML = `<span class="text-[10px] md:text-[11px] font-black text-emerald-300">頂端 ↑ ${desc}</span>`;
+          topSlot.onclick = () => onSlotClick(c, 'TOP');
+        } else {
+          topSlot.innerHTML = `<span class="text-[9px] text-slate-500">頂端接口</span>`;
+        }
+        colCol.appendChild(topSlot);
+
+        // CARDS STACK
+        const stackArea = document.createElement('div');
+        stackArea.className = "flex-1 relative flex justify-center items-start overflow-hidden";
+
+        const total = colCards.length;
+        const offsetStep = total > 4 ? 30 : (total > 2 ? 38 : 46);
+
+        colCards.forEach((card, idx) => {
+          const cardEl = createCardElement(card, true);
+          cardEl.style.position = 'absolute';
+          cardEl.style.top = `${idx * offsetStep}px`;
+          cardEl.style.zIndex = idx + 10;
+          stackArea.appendChild(cardEl);
+        });
+
+        colCol.appendChild(stackArea);
+
+        // BOTTOM DROP SLOT
+        const canDropBottom = (isPlayerTurn && selectedCard) ? canPlaceCard(selectedCard, c, 'BOTTOM') : false;
+        const bottomSlot = document.createElement('div');
+        bottomSlot.className = `w-full h-10 md:h-11 rounded-xl border-2 border-dashed flex items-center justify-center text-xs font-bold transition duration-150 mt-1 ${
+          canDropBottom 
+            ? 'valid-target text-emerald-300 border-emerald-400' 
+            : 'border-white/10 text-slate-600'
+        }`;
+        bottomSlot.dataset.col = c;
+        bottomSlot.dataset.position = 'BOTTOM';
+
+        if (canDropBottom) {
+          const desc = gameConfig.showMathHints ? `(${getPlacementDescription(selectedCard, c, 'BOTTOM')})` : '';
+          bottomSlot.innerHTML = `<span class="text-[10px] md:text-[11px] font-black text-emerald-300">底端 ↓ ${desc}</span>`;
+          bottomSlot.onclick = () => onSlotClick(c, 'BOTTOM');
+        } else {
+          bottomSlot.innerHTML = `<span class="text-[9px] text-slate-500">底端接口</span>`;
+        }
+        colCol.appendChild(bottomSlot);
+
+        container.appendChild(colCol);
+      }
+    }
+
+    function renderActiveHand() {
+      const container = document.getElementById('player-hand-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const humanPlayer = gameState.players[0];
+      if (!humanPlayer || humanPlayer.hand.length === 0) {
+        container.innerHTML = `<div class="text-xs text-slate-400 italic">當前無剩餘手牌</div>`;
+        return;
+      }
+
+      const isPlayerTurn = gameState.activePlayerIndex === 0;
+
+      humanPlayer.hand.forEach(card => {
+        const cardEl = createCardElement(card, false);
+        const isSelected = gameState.selectedCardId === card.id;
+
+        if (isSelected) cardEl.classList.add('selected');
+
+        if (isPlayerTurn) {
+          cardEl.classList.add('cursor-grab');
+          cardEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onHandCardClick(card.id);
+          });
+          setupDragEvents(cardEl, card);
+        } else {
+          cardEl.classList.add('opacity-60', 'cursor-not-allowed');
+        }
+
+        container.appendChild(cardEl);
+      });
+    }
+
+    function renderActiveDiscardPile() {
+      const humanPlayer = gameState.players[0];
+      const countEl = document.getElementById('active-discard-count');
+      if (countEl) countEl.textContent = `${humanPlayer ? humanPlayer.discardPile.length : 0} 張`;
+
+      const zone = document.getElementById('active-discard-zone');
+      if (zone) {
+        zone.onclick = () => {
+          const isPlayerTurn = gameState.activePlayerIndex === 0;
+          if (isPlayerTurn && gameState.selectedCardId) {
+            discardSelectedCard();
+          }
+        };
+      }
+    }
+
+    function updateHintBanner() {
+      const banner = document.getElementById('match-hint-banner');
+      const text = document.getElementById('match-hint-text');
+      const selectedCard = getSelectedCard();
+
+      if (!banner || !text) return;
+
+      if (!selectedCard || gameState.activePlayerIndex !== 0) {
+        banner.classList.add('opacity-0');
+        return;
+      }
+
+      let validCount = 0;
+      for (let c = 0; c < 4; c++) {
+        if (canPlaceCard(selectedCard, c, 'TOP')) validCount++;
+        if (canPlaceCard(selectedCard, c, 'BOTTOM')) validCount++;
+      }
+
+      if (validCount > 0) {
+        text.innerHTML = `已選卡牌 [${selectedCard.top} | ${selectedCard.bottom}]：牌面上有 <strong>${validCount}</strong> 處可合法接龍 (點擊發光插槽)`;
+        banner.className = banner.className.replace(/border-[a-z]+-400/, 'border-emerald-400');
+      } else {
+        text.innerHTML = `卡牌 [${selectedCard.top} | ${selectedCard.bottom}] 目前無合法因倍數接口，請點擊「棄置此牌」放入棄牌區`;
+        banner.className = banner.className.replace(/border-[a-z]+-400/, 'border-rose-400');
+      }
+      banner.classList.remove('opacity-0');
+    }
+
+    function getSelectedCard() {
+      if (!gameState.selectedCardId) return null;
+      const human = gameState.players[0];
+      return human.hand.find(c => c.id === gameState.selectedCardId) || null;
+    }
+
+    function onHandCardClick(cardId) {
+      if (gameState.activePlayerIndex !== 0) return;
+      if (gameState.selectedCardId === cardId) {
+        gameState.selectedCardId = null;
+      } else {
+        gameState.selectedCardId = cardId;
+      }
+      renderAll();
+    }
+
+    function onSlotClick(colIndex, position) {
+      if (gameState.activePlayerIndex !== 0 || !gameState.selectedCardId) return;
+      playCardToColumn(gameState.selectedCardId, colIndex, position);
+    }
+
+    const dragAvatar = document.getElementById('drag-avatar');
+    let dragStartPos = { x: 0, y: 0 };
+
+    function setupDragEvents(cardEl, card) {
+      cardEl.addEventListener('pointerdown', (e) => {
+        if (gameState.activePlayerIndex !== 0) return;
+
+        gameState.selectedCardId = card.id;
+        renderAll();
+
+        dragStartPos = { x: e.clientX, y: e.clientY };
+
+        const onPointerMove = (moveEvent) => {
+          const dx = moveEvent.clientX - dragStartPos.x;
+          const dy = moveEvent.clientY - dragStartPos.y;
+
+          if (Math.hypot(dx, dy) > 5) {
+            gameState.isDragging = true;
+            if (dragAvatar) {
+              dragAvatar.classList.remove('hidden');
+              dragAvatar.innerHTML = cardEl.outerHTML;
+              dragAvatar.style.left = `${moveEvent.clientX}px`;
+              dragAvatar.style.top = `${moveEvent.clientY}px`;
+            }
+          }
+        };
+
+        const onPointerUp = (upEvent) => {
+          document.removeEventListener('pointermove', onPointerMove);
+          document.removeEventListener('pointerup', onPointerUp);
+
+          if (gameState.isDragging) {
+            gameState.isDragging = false;
+            if (dragAvatar) dragAvatar.classList.add('hidden');
+
+            const targetEl = document.elementFromPoint(upEvent.clientX, upEvent.clientY);
+            handleDropAction(targetEl, card);
+          }
+        };
+
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+      });
+    }
+
+    function handleDropAction(targetEl, card) {
+      if (!targetEl || gameState.activePlayerIndex !== 0) return;
+
+      const slot = targetEl.closest('[data-position]');
+      if (slot) {
+        const colIndex = parseInt(slot.dataset.col, 10);
+        const position = slot.dataset.position;
+        if (canPlaceCard(card, colIndex, position)) {
+          playCardToColumn(card.id, colIndex, position);
+          return;
+        }
+      }
+
+      const discardZone = targetEl.closest('#active-discard-zone');
+      if (discardZone) {
+        discardCard(card.id, false);
+      }
+    }
+
+    function openSettingsModal() {
+      const modal = document.getElementById('settings-modal');
+      if (modal) {
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+        const dialog = modal.querySelector('div');
+        if (dialog) {
+          dialog.classList.remove('scale-95');
+          dialog.classList.add('scale-100');
+        }
+      }
+    }
+
+    function closeSettingsModal() {
+      const modal = document.getElementById('settings-modal');
+      if (modal) modal.classList.add('opacity-0', 'pointer-events-none');
+    }
+
+    function selectDeckPackage(deckKey) {
+      gameConfig.selectedDeck = deckKey;
+      ['standard', 'beginner', 'advanced', 'master'].forEach(k => {
+        const btn = document.getElementById(`btn-deck-${k}`);
+        if (btn) {
+          if (k === deckKey) {
+            btn.className = "p-2.5 rounded-xl border border-indigo-400 bg-indigo-600/40 text-left transition hover:bg-indigo-600/60";
+          } else {
+            btn.className = "p-2.5 rounded-xl border border-white/10 bg-black/30 text-left transition hover:bg-indigo-600/40";
+          }
+        }
+      });
+      const info = DECK_PACKAGES[deckKey];
+      const starsLabel = document.getElementById('deck-stars-label');
+      const descHint = document.getElementById('deck-desc-hint');
+      if (starsLabel) starsLabel.textContent = info.stars;
+      if (descHint) descHint.innerHTML = `<strong>${info.name} (${info.badge})</strong>：${info.desc}`;
+    }
+
+    function applySettingsAndRestart() {
+      closeSettingsModal();
+      initGame();
+    }
+
+    function onTimerSliderChange(val) {
+      gameConfig.turnTimeLimit = parseInt(val, 10);
+      const timerValEl = document.getElementById('setting-timer-val');
+      if (timerValEl) timerValEl.textContent = `${val} 秒`;
+      if (!gameState.gameOver) {
+        gameState.timerRemaining = gameConfig.turnTimeLimit;
+        updateTimerUI();
+      }
+    }
+
+    function setAiDifficulty(diff) {
+      gameConfig.aiDifficulty = diff;
+      ['easy', 'medium', 'hard'].forEach(d => {
+        const btn = document.getElementById(`diff-${d}`);
+        if (btn) {
+          if (d === diff) {
+            btn.className = "py-1.5 rounded-xl border bg-cyan-600 border-cyan-400 text-white font-bold";
+          } else {
+            btn.className = "py-1.5 rounded-xl border border-white/10 text-center font-bold text-slate-300";
+          }
+        }
+      });
+      const tag = document.getElementById('ai-diff-tag');
+      if (tag) tag.textContent = diff === 'easy' ? '簡單難度' : (diff === 'medium' ? '中等難度' : '困難難度');
+    }
+
+    function toggleMathHintSetting(checked) {
+      gameConfig.showMathHints = checked;
+      renderBoardColumns();
+    }
+
+    function toggleSoundSetting(checked) {
+      gameConfig.soundEnabled = checked;
+      SoundEffects.enabled = checked;
+    }
+
+    function openPrintModal() {
+      const modal = document.getElementById('print-modal');
+      if (modal) {
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+        const dialog = modal.querySelector('div');
+        if (dialog) {
+          dialog.classList.remove('scale-95');
+          dialog.classList.add('scale-100');
+        }
+      }
+
+      const select = document.getElementById('print-deck-select');
+      if (select) select.value = gameConfig.selectedDeck;
+      renderPrintPreview();
+    }
+
+    function closePrintModal() {
+      const modal = document.getElementById('print-modal');
+      if (modal) modal.classList.add('opacity-0', 'pointer-events-none');
+    }
+
+    function renderPrintPreview() {
+      const select = document.getElementById('print-deck-select');
+      const incBacksEl = document.getElementById('print-include-backs');
+      const incCoverEl = document.getElementById('print-include-cover');
+      const container = document.getElementById('print-preview-container');
+
+      if (!select || !container) return;
+
+      const selectedOption = select.value;
+      const includeBacks = incBacksEl ? incBacksEl.checked : true;
+      const includeCover = incCoverEl ? incCoverEl.checked : true;
+      container.innerHTML = '';
+
+      let decksToPrint = (selectedOption === 'all') 
+        ? ['standard', 'beginner', 'advanced', 'master'] 
+        : [selectedOption];
+
+      decksToPrint.forEach(deckKey => {
+        const deckData = DECK_PACKAGES[deckKey];
+        if (!deckData) return;
+
+        if (includeCover) {
+          const coverPage = document.createElement('div');
+          coverPage.className = "bg-white text-slate-900 rounded-xl p-8 shadow-xl max-w-2xl mx-auto border border-slate-300 min-h-[460px] flex flex-col justify-between";
+          coverPage.innerHTML = `
+            <div class="border-b-4 border-emerald-600 pb-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs uppercase tracking-widest font-black text-emerald-800">因倍數數學桌遊 · 實體紙本卡牌包</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200 font-bold">${deckData.stars}</span>
+              </div>
+              <h1 class="text-2xl font-black text-slate-900 mt-1">${deckData.name} - 40 張卡牌列印組</h1>
+              <p class="text-xs text-slate-600 mt-1">${deckData.desc}</p>
+            </div>
+            <div class="my-4 space-y-2 text-xs leading-relaxed text-slate-700">
+              <h3 class="font-black text-sm text-slate-900">【遊戲規則說明】</h3>
+              <p>1. <b>牌卡組成</b>：每張牌卡有一上一下兩個數字。相鄰兩數必須為因倍數關係 ($A \\pmod B = 0$ 或 $B \\pmod A = 0$)。</p>
+              <p>2. <b>開局準備</b>：40 張卡牌洗勻為發牌塔，中央翻開 4 張起點排，每位玩家手牌 3 張。</p>
+              <p>3. <b>雙向接龍</b>：輪到玩家時，可在中央 4 排任一排的頂部或底部雙向接龍；成功接龍後從牌塔抽一張牌。</p>
+              <p>4. <b>強制棄牌</b>：若無法出牌，須將一張手牌放於個人棄牌區並補抽一張牌。</p>
+              <p>5. <b>滿 7 張收攏</b>：任一排連續達到 7 張牌時立即收攏該排成一疊完成結算。</p>
+              <p>6. <b>勝負評判</b>：牌塔抽完且手牌出清，<b>棄牌數最少者獲勝！</b></p>
+            </div>
+            <div class="text-[10px] text-slate-400 border-t pt-2 flex justify-between items-center">
+              <span>裁切提示：請沿著灰色虛線進行手工裁切 · 建議使用 200gsm 以上紙張</span>
+              <span>© 因倍數牌卡接龍 Solitaire</span>
+            </div>
+          `;
+          container.appendChild(coverPage);
+        }
+
+        const cards = deckData.cards;
+        const CARDS_PER_PAGE = 8;
+        const totalPages = Math.ceil(cards.length / CARDS_PER_PAGE);
+
+        for (let p = 0; p < totalPages; p++) {
+          const pageCards = cards.slice(p * CARDS_PER_PAGE, (p + 1) * CARDS_PER_PAGE);
+          const pageEl = document.createElement('div');
+          pageEl.className = "bg-white text-slate-900 rounded-xl p-6 shadow-xl max-w-2xl mx-auto border border-slate-300";
+          pageEl.innerHTML = `
+            <div class="flex items-center justify-between border-b pb-2 mb-4 text-[11px] text-slate-500">
+              <span class="font-bold text-slate-800">${deckData.name} · 卡牌正面 (第 ${p + 1} / ${totalPages} 頁)</span>
+              <span>沿虛線裁切 · 4x2 網格</span>
+            </div>
+            <div class="grid grid-cols-4 gap-3">
+              ${pageCards.map(c => renderPrintCardHtml(c)).join('')}
+            </div>
+          `;
+          container.appendChild(pageEl);
+
+          if (includeBacks) {
+            const backPageEl = document.createElement('div');
+            backPageEl.className = "bg-white text-slate-900 rounded-xl p-6 shadow-xl max-w-2xl mx-auto border border-slate-300";
+            backPageEl.innerHTML = `
+              <div class="flex items-center justify-between border-b pb-2 mb-4 text-[11px] text-slate-500">
+                <span class="font-bold text-slate-800">${deckData.name} · 卡背頁面 (雙面列印對齊)</span>
+                <span>翻轉短邊列印</span>
+              </div>
+              <div class="grid grid-cols-4 gap-3">
+                ${pageCards.map(c => renderPrintCardBackHtml(deckData)).join('')}
+              </div>
+            `;
+            container.appendChild(backPageEl);
+          }
+        }
+      });
+    }
+
+    function renderPrintCardHtml(card) {
+      const colorHexMap = {
+        blue: { bg: '#2563eb', border: '#1d4ed8', text: '#ffffff' },
+        yellow: { bg: '#f59e0b', border: '#d97706', text: '#0f172a' },
+        pink: { bg: '#f43f5e', border: '#e11d48', text: '#0f172a' },
+        cyan: { bg: '#06b6d4', border: '#0891b2', text: '#0f172a' }
+      };
+      const theme = colorHexMap[card.color] || colorHexMap.blue;
+      const renderNum = (n) => (n === 6 || n === 9) ? `<u style="text-underline-offset: 4px;">${n}</u>` : n;
+
+      return `
+        <div style="border: 1.5px dashed #94a3b8; padding: 4px; border-radius: 8px; background: #f8fafc;">
+          <div style="width: 100%; height: 135px; background-color: ${theme.bg}; color: ${theme.text}; border-radius: 6px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 8px 4px; box-sizing: border-box; font-family: 'Fredoka', sans-serif;">
+            <div style="font-size: 24px; font-weight: 900; line-height: 1;">${renderNum(card.top)}</div>
+            <div style="width: 80%; border-bottom: 2px solid rgba(0,0,0,0.25); margin: 2px 0;"></div>
+            <div style="font-size: 24px; font-weight: 900; line-height: 1;">${renderNum(card.bottom)}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPrintCardBackHtml(deckData) {
+      return `
+        <div style="border: 1.5px dashed #94a3b8; padding: 4px; border-radius: 8px; background: #f8fafc;">
+          <div style="width: 100%; height: 135px; background: linear-gradient(135deg, #1e293b, #0f172a); border: 2px solid #38bdf8; color: #bae6fd; border-radius: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 6px; box-sizing: border-box; text-align: center;">
+            <div style="font-size: 11px; font-weight: 900; letter-spacing: 1px;">因倍數</div>
+            <div style="font-size: 9px; opacity: 0.8; margin: 2px 0;">接龍桌遊</div>
+            <div style="font-size: 8px; color: #fde047; margin-top: 4px; font-weight: bold;">${deckData.stars}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function triggerPrintPdf() {
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        return;
+      }
+
+      const select = document.getElementById('print-deck-select');
+      const incBacksEl = document.getElementById('print-include-backs');
+      const incCoverEl = document.getElementById('print-include-cover');
+
+      const selectedOption = select ? select.value : 'standard';
+      const includeBacks = incBacksEl ? incBacksEl.checked : true;
+      const includeCover = incCoverEl ? incCoverEl.checked : true;
+
+      let decksToPrint = (selectedOption === 'all') 
+        ? ['standard', 'beginner', 'advanced', 'master'] 
+        : [selectedOption];
+
+      let pagesHtml = '';
+
+      decksToPrint.forEach(deckKey => {
+        const deckData = DECK_PACKAGES[deckKey];
+        if (!deckData) return;
+
+        if (includeCover) {
+          pagesHtml += `
+            <div class="print-page cover-page">
+              <div class="cover-header">
+                <h2>因倍數數學桌遊 · 實體紙本卡牌包</h2>
+                <div class="badge">${deckData.stars}</div>
+              </div>
+              <h1 class="title">${deckData.name} - 40 張卡牌列印組</h1>
+              <p class="desc">${deckData.desc}</p>
+              
+              <div class="rules-box">
+                <h3>【遊戲規則速覽】</h3>
+                <ol>
+                  <li><b>牌卡結構</b>：每張卡牌含頂部與底部兩數，相鄰接龍必須符合因數或倍數關係。</li>
+                  <li><b>開局</b>：洗勻 40 張牌成發牌塔，翻開 4 張作接龍起點列，每位玩家初始手牌 3 張。</li>
+                  <li><b>行動</b>：輪流出牌進行頂部或底部雙向接龍；出牌成功立即自發牌塔摸一張牌。</li>
+                  <li><b>棄牌</b>：手牌無法在任一排合法接龍時，強制挑選一張移入個人棄牌區並補抽一張。</li>
+                  <li><b>收攏</b>：任一排累積滿 7 張牌時立即收攏成疊。</li>
+                  <li><b>獲勝判定</b>：發牌塔抽空且手牌結清，<b>棄牌數最少者獲勝！</b></li>
+                </ol>
+              </div>
+
+              <div class="footer-tip">
+                <span>裁剪建議：請沿著灰色虛線裁切，建議使用 200gsm 以上紙張。</span>
+                <span>因倍數牌卡接龍 (Factor & Multiple Solitaire)</span>
+              </div>
+            </div>
+          `;
+        }
+
+        const cards = deckData.cards;
+        const totalPages = Math.ceil(cards.length / 8);
+
+        for (let p = 0; p < totalPages; p++) {
+          const pageCards = cards.slice(p * 8, (p + 1) * 8);
+
+          pagesHtml += `
+            <div class="print-page">
+              <div class="page-header">
+                <span>${deckData.name} · 卡牌正面 (第 ${p + 1} / ${totalPages} 頁)</span>
+                <span>請沿虛線裁切 · 4x2 網格</span>
+              </div>
+              <div class="card-grid">
+                ${pageCards.map(c => renderPrintCardHtml(c)).join('')}
+              </div>
+            </div>
+          `;
+
+          if (includeBacks) {
+            pagesHtml += `
+              <div class="print-page">
+                <div class="page-header">
+                  <span>${deckData.name} · 卡牌背面 (雙面列印對齊)</span>
+                  <span>長邊/短邊翻轉</span>
+                </div>
+                <div class="card-grid">
+                  ${pageCards.map(c => renderPrintCardBackHtml(deckData)).join('')}
+                </div>
+              </div>
+            `;
+          }
+        }
+      });
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>列印因倍數牌卡 - A4 PDF</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@600;800;900&family=Noto+Sans+TC:wght@500;700;900&display=swap');
+            @page {
+              size: A4 portrait;
+              margin: 10mm;
+            }
+            body {
+              font-family: 'Noto Sans TC', sans-serif;
+              margin: 0;
+              padding: 0;
+              background: #fff;
+              color: #0f172a;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .print-page {
+              page-break-after: always;
+              width: 100%;
+              box-sizing: border-box;
+              margin-bottom: 20px;
+            }
+            .cover-page {
+              padding: 30px 20px;
+              border: 2px solid #cbd5e1;
+              border-radius: 12px;
+              min-height: 800px;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+            }
+            .cover-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 3px solid #059669;
+              padding-bottom: 8px;
+            }
+            .cover-header h2 { font-size: 14px; color: #047857; margin: 0; }
+            .cover-header .badge { font-size: 14px; font-weight: bold; color: #b45309; }
+            .title { font-size: 26px; margin: 16px 0 8px 0; font-weight: 900; }
+            .desc { font-size: 13px; color: #475569; margin: 0 0 20px 0; }
+            .rules-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-size: 13px; line-height: 1.8; }
+            .rules-box h3 { margin-top: 0; margin-bottom: 8px; font-size: 15px; }
+            .rules-box ol { margin: 0; padding-left: 20px; }
+            .footer-tip { border-top: 1px solid #e2e8f0; padding-top: 12px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
+            .page-header {
+              display: flex;
+              justify-content: space-between;
+              font-size: 12px;
+              color: #64748b;
+              border-bottom: 1px dashed #cbd5e1;
+              padding-bottom: 6px;
+              margin-bottom: 12px;
+            }
+            .card-grid {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 12px;
+            }
+          </style>
+        </head>
+        <body>
+          ${pagesHtml}
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          <\/script>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+
+    function toggleLogPanel() {
+      const panel = document.getElementById('log-modal');
+      if (panel) panel.classList.toggle('translate-x-full');
+    }
+
+    function clearActionLog() {
+      gameState.actionLogs = [];
+      const list = document.getElementById('action-log-list');
+      if (list) list.innerHTML = '';
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.solitaire-card') && 
+          !e.target.closest('[data-position]') && 
+          !e.target.closest('#active-discard-zone') && 
+          !e.target.closest('#quick-discard-btn')) {
+        if (gameState.selectedCardId) {
+          gameState.selectedCardId = null;
+          renderAll();
+        }
+      }
+    });
+
+    window.onload = () => {
+      initGame();
+    };
+  </script>
+</body>
+</html>
