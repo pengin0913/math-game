@@ -1,0 +1,1976 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>經典數獨遊戲 - 具備多階難度、鉛筆標示與智慧鷹架提示</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+    
+    body {
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* 數獨棋盤格線設計 */
+    .sudoku-cell {
+      position: relative;
+      transition: background-color 0.15s ease, transform 0.1s ease;
+    }
+    
+    .cell-border-r { border-right: 1px solid #334155; }
+    .cell-border-b { border-bottom: 1px solid #334155; }
+    .box-border-r { border-right: 2.5px solid #64748b; }
+    .box-border-b { border-bottom: 2.5px solid #64748b; }
+
+    /* 鷹架引導高亮與動畫 */
+    @keyframes pulse-scaffold {
+      0%, 100% { box-shadow: inset 0 0 0 2px #f59e0b, 0 0 12px rgba(245, 158, 11, 0.4); }
+      50% { box-shadow: inset 0 0 0 3px #fbbf24, 0 0 20px rgba(251, 191, 36, 0.7); }
+    }
+    .scaffold-target {
+      animation: pulse-scaffold 1.4s infinite ease-in-out;
+      background-color: rgba(245, 158, 11, 0.22) !important;
+    }
+    .scaffold-peer {
+      background-color: rgba(245, 158, 11, 0.12) !important;
+    }
+
+    /* 完成行列宮的波紋慶祝動畫 */
+    @keyframes complete-glow {
+      0% { transform: scale(1); filter: brightness(1); }
+      40% { transform: scale(1.06); filter: brightness(1.7); background-color: #38bdf8 !important; }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+    .complete-anim {
+      animation: complete-glow 0.65s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 20;
+    }
+
+    /* 錯誤震動 */
+    @keyframes cell-shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-4px); }
+      40%, 80% { transform: translateX(4px); }
+    }
+    .cell-error-shake {
+      animation: cell-shake 0.35s ease-in-out;
+      background-color: rgba(239, 68, 68, 0.35) !important;
+      color: #fca5a5 !important;
+    }
+
+    /* 鼓勵用語飄浮卡片動畫 */
+    @keyframes toast-enter {
+      0% { opacity: 0; transform: translate(-50%, -20px) scale(0.9); }
+      70% { opacity: 1; transform: translate(-50%, 6px) scale(1.03); }
+      100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    }
+    .toast-active {
+      animation: toast-enter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+
+    /* 隱藏滾動條 */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-[#0f172a] text-slate-100 min-h-screen flex flex-col justify-between items-center p-2 sm:p-4 selection:bg-blue-600">
+
+  <!-- 頂部導覽列：品牌名稱、難度標籤切換與功能快捷列 -->
+  <header class="w-full max-w-5xl mx-auto flex flex-col gap-2 pb-2 border-b border-slate-800">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center font-black text-lg text-white shadow-md shadow-blue-500/20">
+          數
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
+            Sudoku <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 font-medium border border-blue-700/50">大師級</span>
+          </h1>
+        </div>
+      </div>
+
+      <!-- 控制輔助按鈕：音效與規則說明 -->
+      <div class="flex items-center space-x-2 text-sm">
+        <button id="btn-sound" class="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition-colors flex items-center gap-1 text-xs sm:text-sm font-medium" title="開啟/關閉音效">
+          <svg id="icon-sound-on" class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+          <svg id="icon-sound-off" class="w-4 h-4 text-slate-500 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
+          <span id="sound-label">音效</span>
+        </button>
+        <button id="btn-help" class="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition-colors text-xs sm:text-sm font-medium flex items-center gap-1" title="數獨玩法與鷹架導引說明">
+          <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>說明</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 難度等級橫向切換籤：簡單、中等、困難、專家、老手、極限 -->
+    <div class="flex items-center space-x-1 sm:space-x-2 overflow-x-auto no-scrollbar py-1 text-xs sm:text-sm">
+      <span class="text-slate-400 text-xs font-semibold mr-1 shrink-0">難度：</span>
+      <button class="diff-tab px-3 py-1.5 rounded-md font-semibold text-white bg-blue-600 transition-all shadow-sm shrink-0" data-diff="easy">簡單</button>
+      <button class="diff-tab px-3 py-1.5 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-all shrink-0" data-diff="medium">中等</button>
+      <button class="diff-tab px-3 py-1.5 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-all shrink-0" data-diff="hard">困難</button>
+      <button class="diff-tab px-3 py-1.5 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-all shrink-0" data-diff="expert">專家</button>
+      <button class="diff-tab px-3 py-1.5 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-all shrink-0" data-diff="master">老手</button>
+      <button class="diff-tab px-3 py-1.5 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-all shrink-0" data-diff="extreme">極限</button>
+    </div>
+  </header>
+
+  <!-- 浮動鼓勵用語強化卡 (動態彈出) -->
+  <div id="encouragement-toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none hidden max-w-sm sm:max-w-md w-11/12">
+    <div class="bg-gradient-to-r from-amber-500 via-orange-500 to-pink-500 p-0.5 rounded-2xl shadow-2xl shadow-orange-500/30">
+      <div class="bg-slate-900/95 backdrop-blur-md rounded-[15px] px-4 py-3 flex items-center space-x-3 text-white border border-white/10">
+        <div id="toast-icon-container" class="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-2xl shrink-0">
+          🌟
+        </div>
+        <div class="flex-1 min-w-0">
+          <div id="toast-title" class="font-bold text-sm sm:text-base text-amber-300 tracking-wide">太棒了！</div>
+          <div id="toast-body" class="text-xs sm:text-sm text-slate-200 truncate">完美攻克一個九宮格！</div>
+        </div>
+        <div id="toast-badge" class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-slate-950 shrink-0">
+          +100 分
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主要遊戲區域 (主盤面居左/中，操作盤在右側) -->
+  <main class="w-full max-w-5xl mx-auto flex-1 flex flex-col lg:flex-row items-center lg:items-start justify-center gap-4 sm:gap-6 lg:gap-8 my-2 sm:my-4">
+    
+    <!-- 左側：9x9 數獨棋盤容器 -->
+    <div class="flex flex-col items-center w-full max-w-[440px] sm:max-w-[480px]">
+      
+      <!-- 棋盤外框 -->
+      <div class="relative w-full aspect-square bg-[#1e293b] rounded-2xl p-1.5 sm:p-2 border-2 sm:border-3 border-slate-700 shadow-2xl shadow-black/60">
+        <div id="sudoku-board" class="w-full h-full grid grid-cols-9 grid-rows-9 bg-[#172033] rounded-xl overflow-hidden border border-slate-700 select-none">
+          <!-- 81 格由 JavaScript 動態生成渲染 -->
+        </div>
+
+        <!-- 暫停遮罩 -->
+        <div id="pause-overlay" class="absolute inset-0 bg-slate-950/85 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center z-30 hidden">
+          <div class="text-center p-6 space-y-4">
+            <div class="w-14 h-14 rounded-full bg-blue-600/20 text-blue-400 flex items-center justify-center mx-auto text-2xl border border-blue-500/30">
+              ⏸️
+            </div>
+            <h3 class="text-xl font-bold text-white tracking-wide">遊戲已暫停</h3>
+            <p class="text-xs sm:text-sm text-slate-400 max-w-xs">稍作休息，隨時準備好繼續挑戰數獨難題！</p>
+            <button id="btn-resume-overlay" class="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-all shadow-lg shadow-blue-600/30">
+              繼續遊戲
+            </button>
+          </div>
+        </div>
+
+        <!-- 載入中遮罩 -->
+        <div id="loading-overlay" class="absolute inset-0 bg-slate-950/90 rounded-2xl flex flex-col items-center justify-center z-40 hidden">
+          <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mb-3"></div>
+          <p class="text-sm font-medium text-blue-200 tracking-wider">正在運算並產出題目...</p>
+        </div>
+      </div>
+
+      <!-- 快速提示狀態標籤 -->
+      <div class="w-full flex items-center justify-between text-xs text-slate-400 px-2 mt-2">
+        <span class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span> 提示：鍵盤 1-9 輸入，P 切換鉛筆
+        </span>
+        <span id="streak-counter" class="text-amber-400 font-semibold hidden">🔥 連鎖達成中</span>
+      </div>
+    </div>
+
+    <!-- 右側：資訊列與操作面板 -->
+    <div class="w-full max-w-[440px] sm:max-w-[480px] lg:max-w-[340px] flex flex-col gap-3 sm:gap-4">
+      
+      <!-- 狀態指標列：錯誤 (0/3)、分數、計時 (含暫停按鈕) -->
+      <div class="bg-[#1e293b]/90 border border-slate-700/80 rounded-2xl p-3 flex items-center justify-between shadow-lg">
+        <!-- 錯誤次數 -->
+        <div class="flex flex-col items-start">
+          <span class="text-[11px] text-slate-400 font-medium">錯誤次數</span>
+          <div class="flex items-center space-x-1 mt-0.5">
+            <span id="mistake-text" class="text-base sm:text-lg font-bold text-rose-400">0</span>
+            <span class="text-xs text-slate-500 font-medium">/ 3</span>
+          </div>
+        </div>
+
+        <!-- 當前分數 -->
+        <div class="flex flex-col items-center">
+          <span class="text-[11px] text-slate-400 font-medium">得分</span>
+          <span id="score-text" class="text-base sm:text-lg font-bold text-amber-400 mt-0.5">0</span>
+        </div>
+
+        <!-- 計時器與暫停按鈕 -->
+        <div class="flex flex-col items-end">
+          <span class="text-[11px] text-slate-400 font-medium">遊戲時間</span>
+          <div class="flex items-center space-x-1.5 mt-0.5">
+            <span id="timer-text" class="text-base sm:text-lg font-bold font-mono text-cyan-300">00:00</span>
+            <button id="btn-pause-toggle" class="p-1 rounded-md bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition-colors" title="暫停/繼續計時">
+              <svg id="icon-pause" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <svg id="icon-play" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 四大主要工具按鈕：復原、橡皮擦、標準鉛筆 (ON/OFF切換)、鷹架提示 -->
+      <div class="grid grid-cols-4 gap-2">
+        <!-- 復原 (Undo) -->
+        <button id="btn-undo" class="flex flex-col items-center justify-center py-2.5 px-1 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700 transition-all group" title="復原上一手動作 (Ctrl+Z)">
+          <div class="w-8 h-8 rounded-full bg-slate-700/70 group-hover:bg-slate-600 flex items-center justify-center text-slate-200 transition-colors mb-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+          </div>
+          <span class="text-xs font-medium text-slate-300">復原</span>
+        </button>
+
+        <!-- 橡皮擦 (Erase) -->
+        <button id="btn-erase" class="flex flex-col items-center justify-center py-2.5 px-1 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700 transition-all group" title="清除所選格子內的數字或鉛筆標記 (Delete)">
+          <div class="w-8 h-8 rounded-full bg-slate-700/70 group-hover:bg-slate-600 flex items-center justify-center text-slate-200 transition-colors mb-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </div>
+          <span class="text-xs font-medium text-slate-300">清除</span>
+        </button>
+
+        <!-- 標準鉛筆 (Pencil) 具備清晰 ON/OFF 切換指示狀態 -->
+        <button id="btn-pencil" class="relative flex flex-col items-center justify-center py-2.5 px-1 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700 transition-all group" title="切換鉛筆草稿模式 (快速鍵 P)">
+          <span id="pencil-badge" class="absolute top-1.5 right-1.5 text-[9px] font-bold px-1 rounded bg-slate-700 text-slate-400">OFF</span>
+          <div id="pencil-icon-box" class="w-8 h-8 rounded-full bg-slate-700/70 group-hover:bg-slate-600 flex items-center justify-center text-slate-200 transition-all mb-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+          </div>
+          <span class="text-xs font-medium text-slate-300">鉛筆</span>
+        </button>
+
+        <!-- 鷹架提示 (Hint) 燈泡圖標與剩餘次數 -->
+        <button id="btn-hint" class="relative flex flex-col items-center justify-center py-2.5 px-1 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 active:scale-95 border border-amber-500/40 transition-all group" title="取得鷹架步驟引導式提示 (快速鍵 H)">
+          <span id="hint-count-badge" class="absolute top-1.5 right-1.5 text-[10px] font-bold px-1.5 rounded-full bg-amber-500 text-slate-950">3</span>
+          <div class="w-8 h-8 rounded-full bg-amber-500/20 group-hover:bg-amber-500/30 flex items-center justify-center text-amber-400 transition-colors mb-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+          </div>
+          <span class="text-xs font-medium text-amber-300">鷹架提示</span>
+        </button>
+      </div>
+
+      <!-- 鷹架教學引導面板 (點擊提示後展開，提供循序漸進邏輯鷹架) -->
+      <div id="scaffold-panel" class="hidden bg-gradient-to-b from-slate-800 to-slate-900 border-2 border-amber-500/60 rounded-2xl p-3 sm:p-4 shadow-xl shadow-amber-500/10 space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-2">
+          <div class="flex items-center space-x-2">
+            <span class="p-1 rounded-md bg-amber-500/20 text-amber-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+            </span>
+            <span id="scaffold-step-tag" class="text-xs font-bold text-amber-400 uppercase tracking-wider">鷹架引導 • 步驟 1/2</span>
+          </div>
+          <button id="btn-close-scaffold" class="text-slate-400 hover:text-white p-1 rounded-md transition-colors" title="關閉提示">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div>
+          <h4 id="scaffold-title" class="font-bold text-sm sm:text-base text-white flex items-center gap-1.5">
+            最後一個格子
+          </h4>
+          <p id="scaffold-desc" class="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+            來看一下這一直行，目前已填入 8 個數字，只剩最後一個空格！
+          </p>
+        </div>
+
+        <!-- 鷹架控制按鈕：上一步、下一步、直接填入解答 -->
+        <div class="flex items-center justify-between pt-1 gap-2">
+          <div class="flex items-center space-x-1">
+            <button id="btn-scaffold-prev" class="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none text-slate-200 text-xs transition-colors" title="上一個引導步驟">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <button id="btn-scaffold-next" class="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none text-slate-200 text-xs transition-colors" title="下一個引導步驟">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+          <button id="btn-scaffold-apply" class="flex-1 py-1.5 px-3 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 font-semibold text-xs sm:text-sm text-slate-950 transition-all shadow-md shadow-amber-500/20 flex items-center justify-center gap-1">
+            <span>填入數字</span>
+            <span id="scaffold-target-num" class="font-black px-1.5 py-0.2 bg-slate-950/20 rounded">4</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 3x3 數字鍵盤 (1~9，並即時顯示各數字剩餘待填數量) -->
+      <div id="keypad-container" class="grid grid-cols-3 gap-2">
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="1">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">1</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="2">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">2</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="3">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">3</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="4">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">4</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="5">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">5</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="6">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">6</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="7">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">7</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="8">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">8</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+        <button class="keypad-btn flex flex-col items-center justify-center py-2.5 sm:py-3 rounded-xl bg-slate-800/95 hover:bg-blue-600/30 hover:border-blue-500 active:scale-95 border border-slate-700/80 transition-all group" data-num="9">
+          <span class="text-xl sm:text-2xl font-bold text-white group-hover:text-blue-400">9</span>
+          <span class="keypad-count text-[10px] text-slate-400 group-hover:text-blue-300">剩 9</span>
+        </button>
+      </div>
+
+      <!-- 開啟新遊戲主要按鈕 -->
+      <button id="btn-new-game" class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] font-bold text-white transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        <span>新遊戲</span>
+      </button>
+
+    </div>
+  </main>
+
+  <!-- 底部說明 -->
+  <footer class="w-full max-w-5xl mx-auto text-center py-2 text-xs text-slate-500 border-t border-slate-800/80">
+    數獨大師 • 支援鍵盤快速鍵（方向鍵移動、1-9填入、P鉛筆標記、Del清除、H鷹架提示、Z復原）
+  </footer>
+
+  <!-- 對話框模態窗口：開始新遊戲確認視窗 -->
+  <div id="modal-confirm-new" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+      <div class="w-12 h-12 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center mx-auto text-xl">
+        🎮
+      </div>
+      <h3 class="text-lg font-bold text-white">開始新遊戲</h3>
+      <p class="text-xs sm:text-sm text-slate-300">
+        開始全新遊戲將重設當前進度與計時，確定要重新開始嗎？
+      </p>
+      <div class="grid grid-cols-2 gap-3 pt-2">
+        <button id="btn-confirm-cancel" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-sm transition-colors">
+          取消
+        </button>
+        <button id="btn-confirm-ok" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-blue-600/30">
+          確定
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 對話框模態窗口：遊戲失敗 (錯誤達 3 次) -->
+  <div id="modal-game-over" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+      <div class="w-14 h-14 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto text-2xl border border-rose-500/30">
+        💔
+      </div>
+      <div>
+        <h3 class="text-xl font-bold text-white">達到 3 次錯誤</h3>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1">
+          數獨挑戰雖然嚴謹，但每次失誤都是成長的契機！
+        </p>
+      </div>
+      <div class="p-3 bg-slate-800/80 rounded-xl flex justify-around text-xs text-slate-300">
+        <div>
+          <div class="text-slate-500">已堅持時間</div>
+          <div id="gameover-time" class="font-bold text-sm text-white mt-0.5">05:20</div>
+        </div>
+        <div>
+          <div class="text-slate-500">最終得分</div>
+          <div id="gameover-score" class="font-bold text-sm text-amber-400 mt-0.5">350</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 pt-2">
+        <button id="btn-revive" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-sm transition-colors">
+          復活繼續 (+1機會)
+        </button>
+        <button id="btn-restart-gameover" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-blue-600/30">
+          開新一局
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 對話框模態窗口：挑戰成功 (通關慶祝) -->
+  <div id="modal-victory" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-500/60 rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-300 text-slate-950 flex items-center justify-center mx-auto text-3xl shadow-lg shadow-amber-500/40 animate-bounce">
+        🏆
+      </div>
+      <div>
+        <h3 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-200">
+          恭喜完成數獨！
+        </h3>
+        <p id="victory-diff-tag" class="text-xs text-blue-300 font-semibold mt-1">
+          難度：專家級
+        </p>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2 p-3 bg-slate-800/80 rounded-xl text-xs text-slate-300 border border-slate-700">
+        <div>
+          <div class="text-slate-500">通關時間</div>
+          <div id="victory-time" class="font-bold text-sm text-cyan-300 mt-0.5">04:12</div>
+        </div>
+        <div>
+          <div class="text-slate-500">通關總分</div>
+          <div id="victory-score" class="font-bold text-sm text-amber-400 mt-0.5">1,250</div>
+        </div>
+        <div>
+          <div class="text-slate-500">失誤次數</div>
+          <div id="victory-mistakes" class="font-bold text-sm text-emerald-400 mt-0.5">0 次</div>
+        </div>
+      </div>
+
+      <p class="text-xs text-slate-400 italic">
+        「縝密的邏輯推理，是征服數獨的最佳武器！」
+      </p>
+
+      <button id="btn-victory-next" class="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 font-bold text-white text-sm transition-all shadow-lg shadow-blue-500/30">
+        挑戰下一局
+      </button>
+    </div>
+  </div>
+
+  <!-- 對話框模態窗口：規則與鷹架功能解說 -->
+  <div id="modal-rules" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <span>📘 數獨規則與操作引導</span>
+        </h3>
+        <button id="btn-close-rules" class="text-slate-400 hover:text-white p-1 rounded-md">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs sm:text-sm text-slate-300 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
+        <div class="p-3 bg-slate-800/60 rounded-xl space-y-1">
+          <div class="font-bold text-blue-400">1. 基本遊戲規則</div>
+          <p>在 9×9 的棋盤中，每一「橫列」、每一「直行」與每一個「3×3 九宮格」，皆必須填入數字 1 至 9，且數字不能重複。</p>
+        </div>
+
+        <div class="p-3 bg-slate-800/60 rounded-xl space-y-1">
+          <div class="font-bold text-emerald-400">2. 標準鉛筆筆記功能</div>
+          <p>點擊「鉛筆」按鈕切換為 <span class="text-emerald-300 font-semibold">ON</span> 狀態，即可在空格中標記可能候選數字（以 3×3 九宮微型排列呈現）。再次點選相同數字即可擦除該候選筆記。</p>
+        </div>
+
+        <div class="p-3 bg-slate-800/60 rounded-xl space-y-1">
+          <div class="font-bold text-amber-400">3. 智慧鷹架提示系統</div>
+          <p>遇到難題時，點擊「鷹架提示」按鈕，系統將自動分析當前盤面，循序漸進提供教學鷹架（例如：最後一個空格、唯一候選數排除），引導您逐步看懂解題邏輯！</p>
+        </div>
+
+        <div class="p-3 bg-slate-800/60 rounded-xl space-y-1">
+          <div class="font-bold text-cyan-400">4. 激勵反饋機制</div>
+          <p>每當您順利解開任何一條橫列、直行或九宮格，畫面將伴隨光彩漣漪，並彈出專屬鼓勵正向語句與額外加分！</p>
+        </div>
+      </div>
+
+      <button id="btn-confirm-rules" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-white text-sm transition-colors">
+        我知道了，開始解題！
+      </button>
+    </div>
+  </div>
+
+  <!-- JavaScript 核心程式邏輯 -->
+  <script>
+    (function () {
+      'use strict';
+
+      // ----------------------------------------------------
+      // 1. 遊戲核心狀態管理
+      // ----------------------------------------------------
+      const DIFFICULTIES = {
+        easy: { name: '簡單', clues: 40, baseScore: 100 },
+        medium: { name: '中等', clues: 34, baseScore: 200 },
+        hard: { name: '困難', clues: 29, baseScore: 350 },
+        expert: { name: '專家', clues: 26, baseScore: 500 },
+        master: { name: '老手', clues: 23, baseScore: 700 },
+        extreme: { name: '極限', clues: 21, baseScore: 1000 }
+      };
+
+      let currentDifficulty = 'easy';
+      let pendingDifficulty = null;
+
+      // 9x9 盤面資料結構 (預先初始化為 9x9 結構以避免未定義讀取錯誤)
+      let solutionBoard = Array(9).fill(0).map(() => Array(9).fill(0));
+      let initialBoard = Array(9).fill(0).map(() => Array(9).fill(0));
+      let currentBoard = Array(9).fill(0).map(() => Array(9).fill(0));
+      let pencilNotes = Array(9).fill(null).map(() => Array(9).fill(null).map(() => new Set()));
+
+      // 遊戲進行計量
+      let mistakes = 0;
+      const MAX_MISTAKES = 3;
+      let score = 0;
+      let timerSeconds = 0;
+      let timerInterval = null;
+      let isPaused = false;
+      let isGameOver = false;
+      let isVictory = false;
+
+      // 互動狀態
+      let selectedCell = { r: -1, c: -1 };
+      let pencilMode = false;
+      let hintsRemaining = 3;
+      let soundEnabled = true;
+      let moveHistory = [];
+
+      // 完成狀態追蹤 (用於鼓勵強化用語觸發)
+      let completedRows = new Set();
+      let completedCols = new Set();
+      let completedBoxes = new Set();
+
+      // 鷹架提示狀態
+      let activeScaffold = null;
+
+      // 鼓勵用語資料庫
+      const PRAISE_MESSAGES = {
+        row: [
+          '太棒了！第 {X} 列完全搞定！🎉 觀察細膩，勢如破竹！',
+          '漂亮！橫向整條攻克！✨ 思緒清晰，手感火熱！',
+          '神速！第 {X} 列完美填滿！👏 邏輯推演無懈可擊！'
+        ],
+        col: [
+          '太神了！第 {Y} 直行完美貫通！⚡ 氣勢如虹！',
+          '厲害！直行全數到位！🌟 節奏掌握得非常好！',
+          '漂亮突破！第 {Y} 行順利解開！🔥 距離通關更近一步！'
+        ],
+        box: [
+          '太讚了！搞定一整個九宮格！🌟 拼圖更加完整！',
+          '太厲害了！九宮格完美收工！👏 紮實的邏輯推演！',
+          '勢不可擋！九宮區塊全數到位！🚀 展現出色的專注力！'
+        ],
+        multi: [
+          '哇！雙重連鎖突破！💥 同時完成行列與宮格，太強大了！',
+          '不可思議的完美一手！✨ 連鎖完成，得分狂飆！'
+        ]
+      };
+
+      // ----------------------------------------------------
+      // 2. 音效系統 (Web Audio API 合成音效)
+      // ----------------------------------------------------
+      let audioCtx = null;
+      function initAudio() {
+        if (!audioCtx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) {
+            audioCtx = new AudioContext();
+          }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+      }
+
+      function playTone(freq, type = 'sine', duration = 0.1, delay = 0, gainLevel = 0.15) {
+        if (!soundEnabled) return;
+        try {
+          initAudio();
+          if (!audioCtx) return;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+          gain.gain.setValueAtTime(gainLevel, audioCtx.currentTime + delay);
+          gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + delay + duration);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(audioCtx.currentTime + delay);
+          osc.stop(audioCtx.currentTime + delay + duration);
+        } catch (e) {
+          // 靜音保護
+        }
+      }
+
+      function soundClick() { playTone(600, 'sine', 0.05, 0, 0.08); }
+      function soundFill() {
+        playTone(523.25, 'triangle', 0.08, 0, 0.12);
+        playTone(659.25, 'triangle', 0.1, 0.06, 0.12);
+      }
+      function soundPencil() { playTone(880, 'sine', 0.04, 0, 0.04); }
+      function soundErase() { playTone(240, 'sawtooth', 0.08, 0, 0.08); }
+      function soundError() {
+        playTone(180, 'sawtooth', 0.15, 0, 0.2);
+        playTone(140, 'sawtooth', 0.2, 0.1, 0.2);
+      }
+      function soundCelebration() {
+        playTone(523.25, 'sine', 0.12, 0, 0.15);
+        playTone(659.25, 'sine', 0.12, 0.08, 0.15);
+        playTone(783.99, 'sine', 0.15, 0.16, 0.18);
+        playTone(1046.50, 'sine', 0.35, 0.26, 0.2);
+      }
+      function soundVictory() {
+        const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+        notes.forEach((freq, idx) => {
+          playTone(freq, 'triangle', 0.25, idx * 0.12, 0.2);
+        });
+      }
+
+      // ----------------------------------------------------
+      // 3. 數獨演算法：題目生成與求解器 (保證唯一解)
+      // ----------------------------------------------------
+      const FALLBACK_PRESETS = {
+        easy: {
+          puzzle: [
+            [5,3,0,0,7,0,0,0,0],
+            [6,0,0,1,9,5,0,0,0],
+            [0,9,8,0,0,0,0,6,0],
+            [8,0,0,0,6,0,0,0,3],
+            [4,0,0,8,0,3,0,0,1],
+            [7,0,0,0,2,0,0,0,6],
+            [0,6,0,0,0,0,2,8,0],
+            [0,0,0,4,1,9,0,0,5],
+            [0,0,0,0,8,0,0,7,9]
+          ],
+          solution: [
+            [5,3,4,6,7,8,9,1,2],
+            [6,7,2,1,9,5,3,4,8],
+            [1,9,8,3,4,2,5,6,7],
+            [8,5,9,7,6,1,4,2,3],
+            [4,2,6,8,5,3,7,9,1],
+            [7,1,3,9,2,4,8,5,6],
+            [9,6,1,5,3,7,2,8,4],
+            [2,8,7,4,1,9,6,3,5],
+            [3,4,5,2,8,6,1,7,9]
+          ]
+        },
+        medium: {
+          puzzle: [
+            [0,0,0,2,6,0,7,0,1],
+            [6,8,0,0,7,0,0,9,0],
+            [1,9,0,0,0,4,5,0,0],
+            [8,2,0,1,0,0,0,4,0],
+            [0,0,4,6,0,2,9,0,0],
+            [0,5,0,0,0,3,0,2,8],
+            [0,0,9,3,0,0,0,7,4],
+            [0,4,0,0,5,0,0,3,6],
+            [7,0,3,0,1,8,0,0,0]
+          ],
+          solution: [
+            [4,3,5,2,6,9,7,8,1],
+            [6,8,2,5,7,1,4,9,3],
+            [1,9,7,8,3,4,5,6,2],
+            [8,2,6,1,9,5,3,4,7],
+            [3,7,4,6,8,2,9,1,5],
+            [9,5,1,7,4,3,6,2,8],
+            [5,1,9,3,2,6,8,7,4],
+            [2,4,8,9,5,7,1,3,6],
+            [7,6,3,4,1,8,2,5,9]
+          ]
+        },
+        hard: {
+          puzzle: [
+            [0,0,0,6,0,0,4,0,0],
+            [7,0,0,0,0,3,6,0,0],
+            [0,0,0,0,9,1,0,8,0],
+            [0,0,0,0,0,0,0,0,0],
+            [0,5,0,1,8,0,0,0,3],
+            [0,0,0,3,0,6,0,4,5],
+            [0,4,0,2,0,0,0,6,0],
+            [9,0,3,0,0,0,0,0,0],
+            [0,2,0,0,0,0,1,0,0]
+          ],
+          solution: [
+            [5,8,1,6,7,2,4,3,9],
+            [7,9,2,8,4,3,6,5,1],
+            [3,6,4,5,9,1,7,8,2],
+            [4,3,8,9,5,7,2,1,6],
+            [2,5,6,1,8,4,9,7,3],
+            [1,7,9,3,2,6,8,4,5],
+            [8,4,5,2,1,9,3,6,7],
+            [9,1,3,7,6,8,5,2,4],
+            [6,2,7,4,3,5,1,9,8]
+          ]
+        },
+        expert: {
+          puzzle: [
+            [0,2,0,0,0,0,0,0,0],
+            [0,0,0,6,0,0,0,0,3],
+            [0,7,4,0,8,0,0,0,0],
+            [0,0,0,0,0,3,0,0,2],
+            [0,8,0,0,4,0,0,1,0],
+            [6,0,0,5,0,0,0,0,0],
+            [0,0,0,0,1,0,7,8,0],
+            [5,0,0,0,0,9,0,0,0],
+            [0,0,0,0,0,0,0,4,0]
+          ],
+          solution: [
+            [1,2,6,4,3,7,9,5,8],
+            [8,9,5,6,2,1,4,7,3],
+            [3,7,4,9,8,5,1,2,6],
+            [4,5,7,1,9,3,8,6,2],
+            [9,8,3,2,4,6,5,1,7],
+            [6,1,2,5,7,8,3,9,4],
+            [2,6,9,3,1,4,7,8,5],
+            [5,4,8,7,6,9,2,3,1],
+            [7,3,1,8,5,2,6,4,9]
+          ]
+        },
+        master: {
+          puzzle: [
+            [0,0,0,7,0,0,0,0,0],
+            [1,0,0,0,0,0,0,0,0],
+            [0,0,0,4,3,0,2,0,0],
+            [0,0,0,0,0,0,0,0,6],
+            [0,0,0,5,0,9,0,0,0],
+            [0,0,0,0,0,0,4,1,8],
+            [0,0,0,0,8,1,0,0,0],
+            [0,0,2,0,0,0,0,5,0],
+            [0,4,0,0,0,0,3,0,0]
+          ],
+          solution: [
+            [2,6,4,7,1,5,8,3,9],
+            [1,3,7,8,9,2,6,4,5],
+            [5,9,8,4,3,6,2,7,1],
+            [4,2,3,1,7,8,5,9,6],
+            [8,1,6,5,4,9,7,2,3],
+            [7,5,9,3,2,6,4,1,8],
+            [3,7,5,2,8,1,9,6,4],
+            [9,8,2,6,4,3,1,5,7],
+            [6,4,1,9,5,7,3,8,2]
+          ]
+        },
+        extreme: {
+          puzzle: [
+            [8,0,0,0,0,0,0,0,0],
+            [0,0,3,6,0,0,0,0,0],
+            [0,7,0,0,9,0,2,0,0],
+            [0,5,0,0,0,7,0,0,0],
+            [0,0,0,0,4,5,7,0,0],
+            [0,0,0,1,0,0,0,3,0],
+            [0,0,1,0,0,0,0,6,8],
+            [0,0,8,5,0,0,0,1,0],
+            [0,9,0,0,0,0,4,0,0]
+          ],
+          solution: [
+            [8,1,2,7,5,3,6,4,9],
+            [9,4,3,6,8,2,1,7,5],
+            [6,7,5,4,9,1,2,8,3],
+            [1,5,4,2,3,7,8,9,6],
+            [3,6,9,8,4,5,7,2,1],
+            [2,8,7,1,6,9,5,3,4],
+            [5,2,1,9,7,4,3,6,8],
+            [4,3,8,5,2,6,9,1,7],
+            [7,9,6,3,1,8,4,5,2]
+          ]
+        }
+      };
+
+      function checkValidPlacement(grid, r, c, val) {
+        for (let i = 0; i < 9; i++) {
+          if (grid[r][i] === val) return false;
+          if (grid[i][c] === val) return false;
+        }
+        const br = Math.floor(r / 3) * 3;
+        const bc = Math.floor(c / 3) * 3;
+        for (let i = 0; i < 3; i++) {
+          for (let j = 0; j < 3; j++) {
+            if (grid[br + i][bc + j] === val) return false;
+          }
+        }
+        return true;
+      }
+
+      function solveCounter(grid, countObj) {
+        let emptyPos = null;
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (grid[r][c] === 0) {
+              emptyPos = [r, c];
+              break;
+            }
+          }
+          if (emptyPos) break;
+        }
+        if (!emptyPos) {
+          countObj.count++;
+          return countObj.count;
+        }
+        const [r, c] = emptyPos;
+        for (let val = 1; val <= 9; val++) {
+          if (checkValidPlacement(grid, r, c, val)) {
+            grid[r][c] = val;
+            solveCounter(grid, countObj);
+            grid[r][c] = 0;
+            if (countObj.count >= 2) return countObj.count;
+          }
+        }
+        return countObj.count;
+      }
+
+      function generateFullBoard() {
+        const grid = Array(9).fill(0).map(() => Array(9).fill(0));
+        
+        for (let b = 0; b < 9; b += 4) {
+          const nums = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+          let idx = 0;
+          const br = Math.floor(b / 3) * 3;
+          const bc = (b % 3) * 3;
+          for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+              grid[br + i][bc + j] = nums[idx++];
+            }
+          }
+        }
+
+        function fillGrid(g) {
+          for (let r = 0; r < 9; r++) {
+            for (let c = 0; c < 9; c++) {
+              if (g[r][c] === 0) {
+                const candidates = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+                for (const val of candidates) {
+                  if (checkValidPlacement(g, r, c, val)) {
+                    g[r][c] = val;
+                    if (fillGrid(g)) return true;
+                    g[r][c] = 0;
+                  }
+                }
+                return false;
+              }
+            }
+          }
+          return true;
+        }
+
+        fillGrid(grid);
+        return grid;
+      }
+
+      function createPuzzle(diffKey) {
+        try {
+          const startTime = Date.now();
+          const full = generateFullBoard();
+          const puzzle = full.map(row => [...row]);
+          const targetClues = DIFFICULTIES[diffKey].clues;
+          const toRemove = 81 - targetClues;
+
+          const positions = [];
+          for (let r = 0; r < 9; r++) {
+            for (let c = 0; c < 9; c++) {
+              positions.push([r, c]);
+            }
+          }
+          positions.sort(() => Math.random() - 0.5);
+
+          let removedCount = 0;
+          for (const [r, c] of positions) {
+            // 防逾時保護 (超過 1.2 秒則使用精選題庫)
+            if (Date.now() - startTime > 1200) {
+              break;
+            }
+            if (removedCount >= toRemove) break;
+            const backup = puzzle[r][c];
+            puzzle[r][c] = 0;
+
+            const countObj = { count: 0 };
+            const copyGrid = puzzle.map(row => [...row]);
+            solveCounter(copyGrid, countObj);
+
+            if (countObj.count !== 1) {
+              puzzle[r][c] = backup;
+            } else {
+              removedCount++;
+            }
+          }
+
+          if (removedCount >= toRemove * 0.75) {
+            return { full, puzzle };
+          }
+        } catch (e) {
+          // 降級保護
+        }
+
+        const preset = FALLBACK_PRESETS[diffKey] || FALLBACK_PRESETS.easy;
+        return {
+          full: preset.solution.map(r => [...r]),
+          puzzle: preset.puzzle.map(r => [...r])
+        };
+      }
+
+      // ----------------------------------------------------
+      // 4. 遊戲初始化與棋盤渲染
+      // ----------------------------------------------------
+      const boardElement = document.getElementById('sudoku-board');
+
+      function initBoardDOM() {
+        boardElement.innerHTML = '';
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            const cell = document.createElement('div');
+            cell.id = `cell-${r}-${c}`;
+            cell.className = 'sudoku-cell flex items-center justify-center cursor-pointer select-none relative';
+
+            if (c % 3 === 2 && c !== 8) cell.classList.add('box-border-r');
+            else if (c !== 8) cell.classList.add('cell-border-r');
+
+            if (r % 3 === 2 && r !== 8) cell.classList.add('box-border-b');
+            else if (r !== 8) cell.classList.add('cell-border-b');
+
+            cell.dataset.row = r;
+            cell.dataset.col = c;
+
+            const valSpan = document.createElement('span');
+            valSpan.className = 'cell-value font-bold text-lg sm:text-2xl z-10';
+            cell.appendChild(valSpan);
+
+            const notesGrid = document.createElement('div');
+            notesGrid.className = 'pencil-grid absolute inset-0.5 grid grid-cols-3 grid-rows-3 pointer-events-none p-0.5 hidden';
+            for (let n = 1; n <= 9; n++) {
+              const noteSpan = document.createElement('span');
+              noteSpan.className = `note-${n} flex items-center justify-center text-[8px] sm:text-[10px] font-semibold text-slate-400 opacity-0 leading-none`;
+              noteSpan.textContent = n;
+              notesGrid.appendChild(noteSpan);
+            }
+            cell.appendChild(notesGrid);
+
+            cell.addEventListener('click', () => {
+              onCellClick(r, c);
+            });
+
+            boardElement.appendChild(cell);
+          }
+        }
+      }
+
+      function startNewGame(diffKey) {
+        document.getElementById('loading-overlay').classList.remove('hidden');
+        closeAllModals();
+        closeScaffold();
+
+        setTimeout(() => {
+          try {
+            currentDifficulty = diffKey;
+            const { full, puzzle } = createPuzzle(diffKey);
+            solutionBoard = full;
+            initialBoard = puzzle;
+            currentBoard = puzzle.map(row => [...row]);
+            pencilNotes = Array(9).fill(null).map(() => Array(9).fill(null).map(() => new Set()));
+
+            mistakes = 0;
+            score = 0;
+            timerSeconds = 0;
+            isPaused = false;
+            isGameOver = false;
+            isVictory = false;
+            selectedCell = { r: -1, c: -1 };
+            moveHistory = [];
+            completedRows = new Set();
+            completedCols = new Set();
+            completedBoxes = new Set();
+            hintsRemaining = 3;
+
+            auditCompletedUnits(false);
+
+            updateStatsUI();
+            updatePencilUI();
+            updateKeypadCounts();
+            renderBoardAllCells();
+            updateDifficultyTabsUI();
+            startTimer();
+          } catch (err) {
+            console.error('啟動新遊戲失敗：', err);
+          } finally {
+            document.getElementById('loading-overlay').classList.add('hidden');
+          }
+        }, 50);
+      }
+
+      function renderBoardAllCells() {
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            renderCell(r, c);
+          }
+        }
+        updateHighlights();
+      }
+
+      function renderCell(r, c) {
+        const cell = document.getElementById(`cell-${r}-${c}`);
+        if (!cell) return;
+        const valSpan = cell.querySelector('.cell-value');
+        const notesGrid = cell.querySelector('.pencil-grid');
+        const val = currentBoard[r][c];
+        const isInit = initialBoard[r][c] !== 0;
+
+        if (val !== 0) {
+          notesGrid.classList.add('hidden');
+          valSpan.textContent = val;
+          valSpan.classList.remove('hidden');
+
+          if (isInit) {
+            valSpan.className = 'cell-value font-black text-lg sm:text-2xl text-slate-100';
+          } else {
+            valSpan.className = 'cell-value font-bold text-lg sm:text-2xl text-blue-400';
+          }
+        } else {
+          valSpan.textContent = '';
+          valSpan.classList.add('hidden');
+
+          const notes = pencilNotes[r][c];
+          if (notes && notes.size > 0) {
+            notesGrid.classList.remove('hidden');
+            for (let n = 1; n <= 9; n++) {
+              const noteElem = notesGrid.querySelector(`.note-${n}`);
+              if (notes.has(n)) {
+                noteElem.classList.remove('opacity-0');
+              } else {
+                noteElem.classList.add('opacity-0');
+              }
+            }
+          } else {
+            notesGrid.classList.add('hidden');
+          }
+        }
+      }
+
+      // ----------------------------------------------------
+      // 5. 棋盤焦點與高亮
+      // ----------------------------------------------------
+      function onCellClick(r, c) {
+        if (isPaused || isGameOver || isVictory) return;
+        initAudio();
+        selectedCell = { r, c };
+        soundClick();
+        updateHighlights();
+      }
+
+      function updateHighlights() {
+        if (!currentBoard || currentBoard.length < 9) return;
+
+        const { r: selR, c: selC } = selectedCell;
+        const selVal = (selR >= 0 && selC >= 0 && currentBoard[selR]) ? currentBoard[selR][selC] : 0;
+        const selBox = (selR >= 0 && selC >= 0) ? Math.floor(selR / 3) * 3 + Math.floor(selC / 3) : -1;
+
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            const cell = document.getElementById(`cell-${r}-${c}`);
+            if (!cell) continue;
+
+            const box = Math.floor(r / 3) * 3 + Math.floor(c / 3);
+            const val = currentBoard[r] ? currentBoard[r][c] : 0;
+
+            cell.classList.remove('bg-blue-600', 'bg-slate-700/60', 'bg-blue-950/40', 'bg-blue-900/60', 'bg-slate-800/80', 'ring-2', 'ring-blue-300', 'ring-inset', 'ring-1', 'ring-blue-500/50');
+
+            if (r === selR && c === selC) {
+              cell.classList.add('bg-blue-600', 'ring-2', 'ring-blue-300', 'ring-inset');
+            } else if (selVal !== 0 && val === selVal) {
+              cell.classList.add('bg-blue-900/60', 'ring-1', 'ring-blue-500/50');
+            } else if (r === selR || c === selC || box === selBox) {
+              cell.classList.add('bg-slate-800/80');
+            }
+          }
+        }
+
+        if (activeScaffold) {
+          applyScaffoldHighlights();
+        }
+      }
+
+      // ----------------------------------------------------
+      // 6. 填入數字、鉛筆標示與擦除操作
+      // ----------------------------------------------------
+      function inputNumber(num) {
+        if (isPaused || isGameOver || isVictory) return;
+        const { r, c } = selectedCell;
+        if (r < 0 || c < 0) return;
+
+        if (initialBoard[r][c] !== 0) return;
+
+        if (pencilMode) {
+          const notes = pencilNotes[r][c];
+          const prevNotes = new Set(notes);
+          if (notes.has(num)) {
+            notes.delete(num);
+          } else {
+            notes.add(num);
+          }
+          const prevVal = currentBoard[r][c];
+          currentBoard[r][c] = 0;
+
+          moveHistory.push({
+            r, c,
+            prevVal, nextVal: 0,
+            prevNotes, nextNotes: new Set(notes)
+          });
+
+          soundPencil();
+          renderCell(r, c);
+          updateKeypadCounts();
+          updateHighlights();
+        } else {
+          const prevVal = currentBoard[r][c];
+          const prevNotes = new Set(pencilNotes[r][c]);
+
+          if (prevVal === num) return;
+
+          const isCorrect = (num === solutionBoard[r][c]);
+
+          if (isCorrect) {
+            currentBoard[r][c] = num;
+            pencilNotes[r][c].clear();
+
+            eliminatePeerNotes(r, c, num);
+
+            moveHistory.push({
+              r, c,
+              prevVal, nextVal: num,
+              prevNotes, nextNotes: new Set()
+            });
+
+            soundFill();
+            renderCell(r, c);
+            score += 15;
+            updateStatsUI();
+            updateKeypadCounts();
+            updateHighlights();
+
+            checkCompletionFeedback(r, c);
+            checkGameVictory();
+          } else {
+            mistakes++;
+            soundError();
+            flashCellError(r, c);
+            updateStatsUI();
+
+            if (mistakes >= MAX_MISTAKES) {
+              triggerGameOver();
+            }
+          }
+        }
+      }
+
+      function eliminatePeerNotes(row, col, num) {
+        const br = Math.floor(row / 3) * 3;
+        const bc = Math.floor(col / 3) * 3;
+        for (let i = 0; i < 9; i++) {
+          pencilNotes[row][i].delete(num);
+          pencilNotes[i][col].delete(num);
+        }
+        for (let i = 0; i < 3; i++) {
+          for (let j = 0; j < 3; j++) {
+            pencilNotes[br + i][bc + j].delete(num);
+          }
+        }
+        renderBoardAllCells();
+      }
+
+      function eraseCurrentCell() {
+        if (isPaused || isGameOver || isVictory) return;
+        const { r, c } = selectedCell;
+        if (r < 0 || c < 0) return;
+        if (initialBoard[r][c] !== 0) return;
+
+        const prevVal = currentBoard[r][c];
+        const prevNotes = new Set(pencilNotes[r][c]);
+
+        if (prevVal === 0 && prevNotes.size === 0) return;
+
+        currentBoard[r][c] = 0;
+        pencilNotes[r][c].clear();
+
+        moveHistory.push({
+          r, c,
+          prevVal, nextVal: 0,
+          prevNotes, nextNotes: new Set()
+        });
+
+        soundErase();
+        renderCell(r, c);
+        updateKeypadCounts();
+        updateHighlights();
+      }
+
+      function undoMove() {
+        if (isPaused || isGameOver || isVictory) return;
+        if (moveHistory.length === 0) return;
+
+        const lastMove = moveHistory.pop();
+        const { r, c, prevVal, prevNotes } = lastMove;
+
+        currentBoard[r][c] = prevVal;
+        pencilNotes[r][c] = new Set(prevNotes);
+
+        soundClick();
+        selectedCell = { r, c };
+        renderCell(r, c);
+        updateKeypadCounts();
+        updateHighlights();
+      }
+
+      function flashCellError(r, c) {
+        const cell = document.getElementById(`cell-${r}-${c}`);
+        if (!cell) return;
+        cell.classList.add('cell-error-shake');
+        setTimeout(() => {
+          cell.classList.remove('cell-error-shake');
+        }, 400);
+      }
+
+      // ----------------------------------------------------
+      // 7. 完成鼓勵用語增強系統
+      // ----------------------------------------------------
+      function auditCompletedUnits(isCheckingNow = false) {
+        for (let i = 0; i < 9; i++) {
+          let rowComplete = true;
+          for (let c = 0; c < 9; c++) {
+            if (currentBoard[i][c] === 0 || currentBoard[i][c] !== solutionBoard[i][c]) {
+              rowComplete = false;
+              break;
+            }
+          }
+          if (rowComplete) completedRows.add(i);
+
+          let colComplete = true;
+          for (let r = 0; r < 9; r++) {
+            if (currentBoard[r][i] === 0 || currentBoard[r][i] !== solutionBoard[r][i]) {
+              colComplete = false;
+              break;
+            }
+          }
+          if (colComplete) completedCols.add(i);
+
+          let boxComplete = true;
+          const br = Math.floor(i / 3) * 3;
+          const bc = (i % 3) * 3;
+          for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 3; c++) {
+              if (currentBoard[br + r][bc + c] === 0 || currentBoard[br + r][bc + c] !== solutionBoard[br + r][bc + c]) {
+                boxComplete = false;
+                break;
+              }
+            }
+            if (!boxComplete) break;
+          }
+          if (boxComplete) completedBoxes.add(i);
+        }
+      }
+
+      function checkCompletionFeedback(r, c) {
+        const boxIdx = Math.floor(r / 3) * 3 + Math.floor(c / 3);
+
+        const newRowComplete = !completedRows.has(r) && isUnitComplete('row', r);
+        const newColComplete = !completedCols.has(c) && isUnitComplete('col', c);
+        const newBoxComplete = !completedBoxes.has(boxIdx) && isUnitComplete('box', boxIdx);
+
+        if (newRowComplete) completedRows.add(r);
+        if (newColComplete) completedCols.add(c);
+        if (newBoxComplete) completedBoxes.add(boxIdx);
+
+        const completedTypes = [];
+        if (newRowComplete) completedTypes.push({ type: 'row', index: r });
+        if (newColComplete) completedTypes.push({ type: 'col', index: c });
+        if (newBoxComplete) completedTypes.push({ type: 'box', index: boxIdx });
+
+        if (completedTypes.length > 0) {
+          triggerCompletionCelebration(completedTypes);
+        }
+      }
+
+      function isUnitComplete(type, index) {
+        if (type === 'row') {
+          for (let c = 0; c < 9; c++) {
+            if (currentBoard[index][c] === 0 || currentBoard[index][c] !== solutionBoard[index][c]) return false;
+          }
+          return true;
+        } else if (type === 'col') {
+          for (let r = 0; r < 9; r++) {
+            if (currentBoard[r][index] === 0 || currentBoard[r][index] !== solutionBoard[r][index]) return false;
+          }
+          return true;
+        } else if (type === 'box') {
+          const br = Math.floor(index / 3) * 3;
+          const bc = (index % 3) * 3;
+          for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+              if (currentBoard[br + i][bc + j] === 0 || currentBoard[br + i][bc + j] !== solutionBoard[br + i][bc + j]) return false;
+            }
+          }
+          return true;
+        }
+        return false;
+      }
+
+      function triggerCompletionCelebration(completedTypes) {
+        soundCelebration();
+
+        const cellsToAnimate = new Set();
+        completedTypes.forEach(unit => {
+          if (unit.type === 'row') {
+            for (let c = 0; c < 9; c++) cellsToAnimate.add(`cell-${unit.index}-${c}`);
+          } else if (unit.type === 'col') {
+            for (let r = 0; r < 9; r++) cellsToAnimate.add(`cell-${r}-${unit.index}`);
+          } else if (unit.type === 'box') {
+            const br = Math.floor(unit.index / 3) * 3;
+            const bc = (unit.index % 3) * 3;
+            for (let i = 0; i < 3; i++) {
+              for (let j = 0; j < 3; j++) cellsToAnimate.add(`cell-${br + i}-${bc + j}`);
+            }
+          }
+        });
+
+        cellsToAnimate.forEach(cellId => {
+          const el = document.getElementById(cellId);
+          if (el) {
+            el.classList.add('complete-anim');
+            setTimeout(() => el.classList.remove('complete-anim'), 700);
+          }
+        });
+
+        let title = '恭喜完成！';
+        let body = '勢如破竹！';
+        let bonus = 100 * completedTypes.length;
+
+        if (completedTypes.length > 1) {
+          title = '🔥 連鎖大爆發！';
+          const template = PRAISE_MESSAGES.multi[Math.floor(Math.random() * PRAISE_MESSAGES.multi.length)];
+          body = template;
+          bonus += 100;
+        } else {
+          const u = completedTypes[0];
+          if (u.type === 'row') {
+            title = '橫向貫通！✨';
+            const template = PRAISE_MESSAGES.row[Math.floor(Math.random() * PRAISE_MESSAGES.row.length)];
+            body = template.replace('{X}', u.index + 1);
+          } else if (u.type === 'col') {
+            title = '縱向制霸！⚡';
+            const template = PRAISE_MESSAGES.col[Math.floor(Math.random() * PRAISE_MESSAGES.col.length)];
+            body = template.replace('{Y}', u.index + 1);
+          } else if (u.type === 'box') {
+            title = '九宮攻克！🌟';
+            const template = PRAISE_MESSAGES.box[Math.floor(Math.random() * PRAISE_MESSAGES.box.length)];
+            body = template;
+          }
+        }
+
+        score += bonus;
+        updateStatsUI();
+        showEncouragementToast(title, body, `+${bonus} 分`);
+      }
+
+      let toastTimer = null;
+      function showEncouragementToast(title, message, badgeText) {
+        const toast = document.getElementById('encouragement-toast');
+        const titleEl = document.getElementById('toast-title');
+        const bodyEl = document.getElementById('toast-body');
+        const badgeEl = document.getElementById('toast-badge');
+
+        titleEl.textContent = title;
+        bodyEl.textContent = message;
+        badgeEl.textContent = badgeText;
+
+        toast.classList.remove('hidden');
+        toast.classList.remove('toast-active');
+        void toast.offsetWidth;
+        toast.classList.add('toast-active');
+
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          toast.classList.add('hidden');
+        }, 3200);
+      }
+
+      // ----------------------------------------------------
+      // 8. 智慧鷹架提示功能
+      // ----------------------------------------------------
+      function triggerHint() {
+        if (isPaused || isGameOver || isVictory) return;
+        initAudio();
+
+        if (hintsRemaining <= 0) {
+          showEncouragementToast('提示次數用盡', '請善用鉛筆功能進行候選數標記排查！', '加油');
+          return;
+        }
+
+        const hintOpportunity = findScaffoldingOpportunity();
+        if (!hintOpportunity) {
+          showEncouragementToast('太棒了！', '盤面已幾乎全部完成！', '即將通關');
+          return;
+        }
+
+        activeScaffold = hintOpportunity;
+        activeScaffold.currentStep = 0;
+        hintsRemaining--;
+        updateStatsUI();
+
+        selectedCell = { r: activeScaffold.r, c: activeScaffold.c };
+        updateHighlights();
+
+        renderScaffoldPanel();
+        soundClick();
+      }
+
+      function findScaffoldingOpportunity() {
+        for (let c = 0; c < 9; c++) {
+          const empties = [];
+          for (let r = 0; r < 9; r++) {
+            if (currentBoard[r][c] === 0) empties.push([r, c]);
+          }
+          if (empties.length === 1) {
+            const [er, ec] = empties[0];
+            const targetNum = solutionBoard[er][ec];
+            return {
+              type: 'last_empty_col',
+              r: er, c: ec, targetNum,
+              highlightUnit: { type: 'col', index: ec },
+              steps: [
+                {
+                  title: '最後一個格子：來看一下這一直行',
+                  desc: `第 ${ec + 1} 直行目前已經填妥了 8 個數字，仔細觀察只剩下這 1 個空格！`,
+                  highlight: 'unit'
+                },
+                {
+                  title: '唯一定理推導',
+                  desc: `觀察周圍已存在的數字，1~9 當中僅缺少了【${targetNum}】！因此這個空格必然適合填入 ${targetNum}。`,
+                  highlight: 'cell'
+                }
+              ]
+            };
+          }
+        }
+
+        for (let r = 0; r < 9; r++) {
+          const empties = [];
+          for (let c = 0; c < 9; c++) {
+            if (currentBoard[r][c] === 0) empties.push([r, c]);
+          }
+          if (empties.length === 1) {
+            const [er, ec] = empties[0];
+            const targetNum = solutionBoard[er][ec];
+            return {
+              type: 'last_empty_row',
+              r: er, c: ec, targetNum,
+              highlightUnit: { type: 'row', index: er },
+              steps: [
+                {
+                  title: '最後一個格子：來看一下這一橫列',
+                  desc: `第 ${er + 1} 橫列已經填入了 8 個數字，全列只剩最後一個空格！`,
+                  highlight: 'unit'
+                },
+                {
+                  title: '排除法鎖定答案',
+                  desc: `依據數獨規則橫列數字不重複，整列只差數字【${targetNum}】，沒有其他可能！`,
+                  highlight: 'cell'
+                }
+              ]
+            };
+          }
+        }
+
+        for (let b = 0; b < 9; b++) {
+          const br = Math.floor(b / 3) * 3;
+          const bc = (b % 3) * 3;
+          const empties = [];
+          for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+              if (currentBoard[br + i][bc + j] === 0) empties.push([br + i, bc + j]);
+            }
+          }
+          if (empties.length === 1) {
+            const [er, ec] = empties[0];
+            const targetNum = solutionBoard[er][ec];
+            return {
+              type: 'last_empty_box',
+              r: er, c: ec, targetNum,
+              highlightUnit: { type: 'box', index: b },
+              steps: [
+                {
+                  title: '最後一個格子：九宮格即將完成',
+                  desc: '這個 3×3 九宮格已經有 8 個數字就位，只剩下最後一個空缺！',
+                  highlight: 'unit'
+                },
+                {
+                  title: '唯一合法數字',
+                  desc: `檢視同九宮格內其餘 8 格，缺少的正是數字【${targetNum}】！`,
+                  highlight: 'cell'
+                }
+              ]
+            };
+          }
+        }
+
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (currentBoard[r][c] === 0) {
+              const present = new Set();
+              for (let i = 0; i < 9; i++) {
+                if (currentBoard[r][i] !== 0) present.add(currentBoard[r][i]);
+                if (currentBoard[i][c] !== 0) present.add(currentBoard[i][c]);
+              }
+              const br = Math.floor(r / 3) * 3;
+              const bc = Math.floor(c / 3) * 3;
+              for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                  if (currentBoard[br + i][bc + j] !== 0) present.add(currentBoard[br + i][bc + j]);
+                }
+              }
+
+              if (present.size === 8) {
+                const targetNum = solutionBoard[r][c];
+                return {
+                  type: 'naked_single',
+                  r, c, targetNum,
+                  highlightUnit: { type: 'peers', r, c },
+                  steps: [
+                    {
+                      title: '觀察焦點：唯一候選數突破點',
+                      desc: `觀察所選格子（第 ${r + 1} 列、第 ${c + 1} 行），其所在行列與九宮格已包含大量的已知數。`,
+                      highlight: 'unit'
+                    },
+                    {
+                      title: '交叉排除結論',
+                      desc: `周圍同行同宮已排除了 8 個不同數字，經過交叉檢驗，此處唯一可填入的數字就是【${targetNum}】！`,
+                      highlight: 'cell'
+                    }
+                  ]
+                };
+              }
+            }
+          }
+        }
+
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (currentBoard[r][c] === 0) {
+              const targetNum = solutionBoard[r][c];
+              return {
+                type: 'standard_hint',
+                r, c, targetNum,
+                highlightUnit: { type: 'peers', r, c },
+                steps: [
+                  {
+                    title: '解題鷹架：鎖定目標儲存格',
+                    desc: `讓我們聚焦在第 ${r + 1} 列、第 ${c + 1} 行的空格，觀察其周遭的關聯線索。`,
+                    highlight: 'unit'
+                  },
+                  {
+                    title: '最佳填入建議',
+                    desc: `根據全盤邏輯推算，這個格子填入【${targetNum}】是最佳且正確的關鍵解答！`,
+                    highlight: 'cell'
+                  }
+                ]
+              };
+            }
+          }
+        }
+
+        return null;
+      }
+
+      function renderScaffoldPanel() {
+        if (!activeScaffold) return;
+        const panel = document.getElementById('scaffold-panel');
+        const stepTag = document.getElementById('scaffold-step-tag');
+        const titleEl = document.getElementById('scaffold-title');
+        const descEl = document.getElementById('scaffold-desc');
+        const targetNumEl = document.getElementById('scaffold-target-num');
+        const prevBtn = document.getElementById('btn-scaffold-prev');
+        const nextBtn = document.getElementById('btn-scaffold-next');
+
+        const step = activeScaffold.steps[activeScaffold.currentStep];
+        const totalSteps = activeScaffold.steps.length;
+
+        stepTag.textContent = `鷹架引導 • 步驟 ${activeScaffold.currentStep + 1}/${totalSteps}`;
+        titleEl.textContent = step.title;
+        descEl.textContent = step.desc;
+        targetNumEl.textContent = activeScaffold.targetNum;
+
+        prevBtn.disabled = (activeScaffold.currentStep === 0);
+        nextBtn.disabled = (activeScaffold.currentStep >= totalSteps - 1);
+
+        panel.classList.remove('hidden');
+        applyScaffoldHighlights();
+      }
+
+      function applyScaffoldHighlights() {
+        if (!activeScaffold) return;
+        const step = activeScaffold.steps[activeScaffold.currentStep];
+
+        document.querySelectorAll('.scaffold-target, .scaffold-peer').forEach(el => {
+          el.classList.remove('scaffold-target', 'scaffold-peer');
+        });
+
+        const targetEl = document.getElementById(`cell-${activeScaffold.r}-${activeScaffold.c}`);
+        if (targetEl) targetEl.classList.add('scaffold-target');
+
+        if (step.highlight === 'unit' && activeScaffold.highlightUnit) {
+          const u = activeScaffold.highlightUnit;
+          if (u.type === 'col') {
+            for (let r = 0; r < 9; r++) {
+              const el = document.getElementById(`cell-${r}-${u.index}`);
+              if (el && r !== activeScaffold.r) el.classList.add('scaffold-peer');
+            }
+          } else if (u.type === 'row') {
+            for (let c = 0; c < 9; c++) {
+              const el = document.getElementById(`cell-${u.index}-${c}`);
+              if (el && c !== activeScaffold.c) el.classList.add('scaffold-peer');
+            }
+          } else if (u.type === 'box') {
+            const br = Math.floor(u.index / 3) * 3;
+            const bc = (u.index % 3) * 3;
+            for (let i = 0; i < 3; i++) {
+              for (let j = 0; j < 3; j++) {
+                const el = document.getElementById(`cell-${br + i}-${bc + j}`);
+                if (el && (br + i !== activeScaffold.r || bc + j !== activeScaffold.c)) el.classList.add('scaffold-peer');
+              }
+            }
+          } else if (u.type === 'peers') {
+            for (let i = 0; i < 9; i++) {
+              const rowEl = document.getElementById(`cell-${u.r}-${i}`);
+              const colEl = document.getElementById(`cell-${i}-${u.c}`);
+              if (rowEl && i !== u.c) rowEl.classList.add('scaffold-peer');
+              if (colEl && i !== u.r) colEl.classList.add('scaffold-peer');
+            }
+          }
+        }
+      }
+
+      function closeScaffold() {
+        activeScaffold = null;
+        document.getElementById('scaffold-panel').classList.add('hidden');
+        document.querySelectorAll('.scaffold-target, .scaffold-peer').forEach(el => {
+          el.classList.remove('scaffold-target', 'scaffold-peer');
+        });
+        updateHighlights();
+      }
+
+      function applyScaffoldSolution() {
+        if (!activeScaffold) return;
+        const { r, c, targetNum } = activeScaffold;
+        selectedCell = { r, c };
+        pencilMode = false;
+        updatePencilUI();
+        inputNumber(targetNum);
+        closeScaffold();
+      }
+
+      // ----------------------------------------------------
+      // 9. 計時器與狀態更新
+      // ----------------------------------------------------
+      function startTimer() {
+        stopTimer();
+        timerInterval = setInterval(() => {
+          if (!isPaused && !isGameOver && !isVictory) {
+            timerSeconds++;
+            renderTimerText();
+          }
+        }, 1000);
+      }
+
+      function stopTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = null;
+      }
+
+      function renderTimerText() {
+        const mins = Math.floor(timerSeconds / 60);
+        const secs = timerSeconds % 60;
+        const text = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        document.getElementById('timer-text').textContent = text;
+      }
+
+      function togglePause(forced) {
+        if (isGameOver || isVictory) return;
+        isPaused = (typeof forced === 'boolean') ? forced : !isPaused;
+        const overlay = document.getElementById('pause-overlay');
+        const iconPause = document.getElementById('icon-pause');
+        const iconPlay = document.getElementById('icon-play');
+
+        if (isPaused) {
+          overlay.classList.remove('hidden');
+          iconPause.classList.add('hidden');
+          iconPlay.classList.remove('hidden');
+        } else {
+          overlay.classList.add('hidden');
+          iconPause.classList.remove('hidden');
+          iconPlay.classList.add('hidden');
+        }
+      }
+
+      function updateStatsUI() {
+        document.getElementById('mistake-text').textContent = mistakes;
+        document.getElementById('score-text').textContent = score.toLocaleString();
+        document.getElementById('hint-count-badge').textContent = hintsRemaining;
+      }
+
+      function updatePencilUI() {
+        const badge = document.getElementById('pencil-badge');
+        const iconBox = document.getElementById('pencil-icon-box');
+        const btn = document.getElementById('btn-pencil');
+
+        if (pencilMode) {
+          badge.textContent = 'ON';
+          badge.className = 'absolute top-1.5 right-1.5 text-[9px] font-black px-1 rounded bg-blue-500 text-white';
+          iconBox.className = 'w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center transition-all mb-1 shadow-md shadow-blue-500/40 ring-2 ring-blue-400';
+          btn.classList.add('border-blue-500', 'bg-blue-900/20');
+        } else {
+          badge.textContent = 'OFF';
+          badge.className = 'absolute top-1.5 right-1.5 text-[9px] font-bold px-1 rounded bg-slate-700 text-slate-400';
+          iconBox.className = 'w-8 h-8 rounded-full bg-slate-700/70 group-hover:bg-slate-600 flex items-center justify-center text-slate-200 transition-all mb-1';
+          btn.classList.remove('border-blue-500', 'bg-blue-900/20');
+        }
+      }
+
+      function updateKeypadCounts() {
+        const counts = Array(10).fill(0);
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            const v = currentBoard[r][c];
+            if (v >= 1 && v <= 9) counts[v]++;
+          }
+        }
+
+        document.querySelectorAll('.keypad-btn').forEach(btn => {
+          const num = parseInt(btn.dataset.num, 10);
+          const remaining = 9 - counts[num];
+          const countSpan = btn.querySelector('.keypad-count');
+          if (remaining <= 0) {
+            countSpan.textContent = '✓ 齊全';
+            countSpan.className = 'keypad-count text-[10px] text-emerald-400 font-semibold';
+            btn.classList.add('opacity-40');
+          } else {
+            countSpan.textContent = `剩 ${remaining}`;
+            countSpan.className = 'keypad-count text-[10px] text-slate-400 group-hover:text-blue-300';
+            btn.classList.remove('opacity-40');
+          }
+        });
+      }
+
+      function updateDifficultyTabsUI() {
+        document.querySelectorAll('.diff-tab').forEach(tab => {
+          if (tab.dataset.diff === currentDifficulty) {
+            tab.className = 'diff-tab px-3 py-1.5 rounded-md font-semibold text-white bg-blue-600 transition-all shadow-sm shrink-0';
+          } else {
+            tab.className = 'diff-tab px-3 py-1.5 rounded-md font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-all shrink-0';
+          }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 10. 勝負檢驗與結算視窗
+      // ----------------------------------------------------
+      function checkGameVictory() {
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (currentBoard[r][c] === 0 || currentBoard[r][c] !== solutionBoard[r][c]) {
+              return false;
+            }
+          }
+        }
+
+        isVictory = true;
+        stopTimer();
+        soundVictory();
+
+        const timeBonus = Math.max(0, 1000 - timerSeconds * 2);
+        const mistakeBonus = (MAX_MISTAKES - mistakes) * 150;
+        const totalFinalScore = score + DIFFICULTIES[currentDifficulty].baseScore + timeBonus + mistakeBonus;
+
+        const mins = Math.floor(timerSeconds / 60);
+        const secs = timerSeconds % 60;
+        const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+        document.getElementById('victory-diff-tag').textContent = `難度：${DIFFICULTIES[currentDifficulty].name}`;
+        document.getElementById('victory-time').textContent = timeStr;
+        document.getElementById('victory-score').textContent = totalFinalScore.toLocaleString();
+        document.getElementById('victory-mistakes').textContent = `${mistakes} 次`;
+
+        document.getElementById('modal-victory').classList.remove('hidden');
+        return true;
+      }
+
+      function triggerGameOver() {
+        isGameOver = true;
+        stopTimer();
+
+        const mins = Math.floor(timerSeconds / 60);
+        const secs = timerSeconds % 60;
+        document.getElementById('gameover-time').textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        document.getElementById('gameover-score').textContent = score.toLocaleString();
+
+        document.getElementById('modal-game-over').classList.remove('hidden');
+      }
+
+      function closeAllModals() {
+        document.getElementById('modal-confirm-new').classList.add('hidden');
+        document.getElementById('modal-game-over').classList.add('hidden');
+        document.getElementById('modal-victory').classList.add('hidden');
+        document.getElementById('modal-rules').classList.add('hidden');
+      }
+
+      // ----------------------------------------------------
+      // 11. 事件監聽綁定
+      // ----------------------------------------------------
+      function setupEventListeners() {
+        document.querySelectorAll('.diff-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            const newDiff = tab.dataset.diff;
+            if (newDiff === currentDifficulty) return;
+            pendingDifficulty = newDiff;
+            document.getElementById('modal-confirm-new').classList.remove('hidden');
+          });
+        });
+
+        document.getElementById('btn-confirm-ok').addEventListener('click', () => {
+          document.getElementById('modal-confirm-new').classList.add('hidden');
+          startNewGame(pendingDifficulty || currentDifficulty);
+          pendingDifficulty = null;
+        });
+
+        document.getElementById('btn-confirm-cancel').addEventListener('click', () => {
+          document.getElementById('modal-confirm-new').classList.add('hidden');
+          pendingDifficulty = null;
+        });
+
+        document.getElementById('btn-new-game').addEventListener('click', () => {
+          pendingDifficulty = currentDifficulty;
+          document.getElementById('modal-confirm-new').classList.remove('hidden');
+        });
+
+        document.querySelectorAll('.keypad-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const num = parseInt(btn.dataset.num, 10);
+            inputNumber(num);
+          });
+        });
+
+        document.getElementById('btn-undo').addEventListener('click', undoMove);
+        document.getElementById('btn-erase').addEventListener('click', eraseCurrentCell);
+        document.getElementById('btn-pencil').addEventListener('click', () => {
+          pencilMode = !pencilMode;
+          initAudio();
+          soundClick();
+          updatePencilUI();
+        });
+        document.getElementById('btn-hint').addEventListener('click', triggerHint);
+
+        document.getElementById('btn-close-scaffold').addEventListener('click', closeScaffold);
+        document.getElementById('btn-scaffold-prev').addEventListener('click', () => {
+          if (!activeScaffold || activeScaffold.currentStep <= 0) return;
+          activeScaffold.currentStep--;
+          soundClick();
+          renderScaffoldPanel();
+        });
+        document.getElementById('btn-scaffold-next').addEventListener('click', () => {
+          if (!activeScaffold || activeScaffold.currentStep >= activeScaffold.steps.length - 1) return;
+          activeScaffold.currentStep++;
+          soundClick();
+          renderScaffoldPanel();
+        });
+        document.getElementById('btn-scaffold-apply').addEventListener('click', applyScaffoldSolution);
+
+        document.getElementById('btn-pause-toggle').addEventListener('click', () => togglePause());
+        document.getElementById('btn-resume-overlay').addEventListener('click', () => togglePause(false));
+
+        document.getElementById('btn-sound').addEventListener('click', () => {
+          soundEnabled = !soundEnabled;
+          const onIcon = document.getElementById('icon-sound-on');
+          const offIcon = document.getElementById('icon-sound-off');
+          const label = document.getElementById('sound-label');
+          if (soundEnabled) {
+            onIcon.classList.remove('hidden');
+            offIcon.classList.add('hidden');
+            label.textContent = '音效';
+            initAudio();
+            soundClick();
+          } else {
+            onIcon.classList.add('hidden');
+            offIcon.classList.remove('hidden');
+            label.textContent = '靜音';
+          }
+        });
+
+        document.getElementById('btn-help').addEventListener('click', () => {
+          document.getElementById('modal-rules').classList.remove('hidden');
+        });
+        document.getElementById('btn-close-rules').addEventListener('click', () => {
+          document.getElementById('modal-rules').classList.add('hidden');
+        });
+        document.getElementById('btn-confirm-rules').addEventListener('click', () => {
+          document.getElementById('modal-rules').classList.add('hidden');
+        });
+
+        document.getElementById('btn-revive').addEventListener('click', () => {
+          document.getElementById('modal-game-over').classList.add('hidden');
+          mistakes = MAX_MISTAKES - 1;
+          isGameOver = false;
+          updateStatsUI();
+          startTimer();
+          showEncouragementToast('再接再厲！', '已獲得復活機會，請謹慎審題！', '加油');
+        });
+
+        document.getElementById('btn-restart-gameover').addEventListener('click', () => {
+          document.getElementById('modal-game-over').classList.add('hidden');
+          startNewGame(currentDifficulty);
+        });
+
+        document.getElementById('btn-victory-next').addEventListener('click', () => {
+          document.getElementById('modal-victory').classList.add('hidden');
+          startNewGame(currentDifficulty);
+        });
+
+        window.addEventListener('keydown', (e) => {
+          if (isPaused || isGameOver || isVictory) return;
+
+          if (e.key >= '1' && e.key <= '9') {
+            inputNumber(parseInt(e.key, 10));
+            return;
+          }
+
+          if (e.key.toLowerCase() === 'p') {
+            pencilMode = !pencilMode;
+            initAudio();
+            soundClick();
+            updatePencilUI();
+            return;
+          }
+
+          if (e.key === 'Backspace' || e.key === 'Delete' || e.key.toLowerCase() === 'e') {
+            eraseCurrentCell();
+            return;
+          }
+
+          if ((e.key.toLowerCase() === 'z' || (e.ctrlKey && e.key.toLowerCase() === 'z')) && !e.shiftKey) {
+            undoMove();
+            return;
+          }
+
+          if (e.key.toLowerCase() === 'h') {
+            triggerHint();
+            return;
+          }
+
+          if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 's', 'a', 'd', 'W', 'S', 'A', 'D'].includes(e.key)) {
+            e.preventDefault();
+            let { r, c } = selectedCell;
+            if (r < 0 || c < 0) {
+              selectedCell = { r: 0, c: 0 };
+            } else {
+              if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') r = (r > 0) ? r - 1 : 8;
+              if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') r = (r < 8) ? r + 1 : 0;
+              if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') c = (c > 0) ? c - 1 : 8;
+              if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') c = (c < 8) ? c + 1 : 0;
+              selectedCell = { r, c };
+            }
+            soundClick();
+            updateHighlights();
+          }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 12. 啟動入口
+      // ----------------------------------------------------
+      window.onload = function () {
+        initBoardDOM();
+        setupEventListeners();
+        startNewGame('easy');
+      };
+
+    })();
+  </script>
+</body>
+</html>
